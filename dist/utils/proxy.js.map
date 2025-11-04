@@ -1,0 +1,1 @@
+{"version":3,"file":"proxy.js","sourceRoot":"","sources":["../../src/utils/proxy.ts"],"names":[],"mappings":";;AAGA,sCAGC;AAND,yDAAoD;AAGpD,SAAgB,aAAa,CAAC,QAAiB;IAC7C,IAAI,CAAC,QAAQ;QAAE,OAAO,SAAS,CAAC;IAChC,OAAO,IAAI,mCAAe,CAAC,QAAQ,CAAC,CAAC;AACvC,CAAC"}

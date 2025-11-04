@@ -1,0 +1,33 @@
+{
+  "name": "x-code",
+  "version": "1.0.0",
+  "description": "Fetch latest posts from followed users on X via proxy",
+  "main": "dist/cli/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli/index.js start",
+    "dev": "ts-node src/cli/index.ts start",
+    "fetch-once": "ts-node src/cli/index.ts fetch-once",
+    "show": "ts-node src/cli/index.ts show"
+  },
+  "keywords": [],
+  "author": "senmacn",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^8.4.0",
+    "dotenv": "^17.2.3",
+    "https-proxy-agent": "^7.0.6",
+    "node-cron": "^4.2.1",
+    "pino": "^8.14.1",
+    "twitter-api-v2": "^1.27.0",
+    "yargs": "^17.7.2",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.0",
+    "@types/yargs": "^17.0.34",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

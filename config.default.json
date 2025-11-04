@@ -1,0 +1,8 @@
+{
+  "mode": "static",
+  "staticUsernames": ["jack"],
+  "schedule": "*/10 * * * *",
+  "proxy": "http://127.0.0.1:7890",
+  "maxPerUser": 20,
+  "concurrency": 3
+}
