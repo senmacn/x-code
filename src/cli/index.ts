@@ -3,12 +3,50 @@ import { hideBin } from "yargs/helpers";
 import { loadConfig } from "../config";
 import { getProxyAgent } from "../utils/proxy";
 import { createXClient, getMyFollowings } from "../clients/xClient";
-import { TwitterApi } from "twitter-api-v2";
+import TwitterApi from "twitter-api-v2";
 import { Store } from "../data/store";
 import { fetchForUsernames } from "../services/fetcher";
 import { startScheduler } from "../services/scheduler";
 import { logger } from "../utils/logger";
 import { truncate } from "../utils/text";
+
+interface ShowArgs {
+  user?: string;
+  limit: number;
+  since?: string;
+  until?: string;
+  contains?: string;
+  lang?: string;
+  users: boolean;
+  json: boolean;
+}
+
+const handleShow = (store: Store, args: ShowArgs) => {
+  if (args.users) {
+    store.listUsers().forEach((u) => {
+      console.log(`@${u.username}${u.name ? ` (${u.name})` : ""} [${u.id}]`);
+    });
+    return;
+  }
+
+  const rows = store.queryTweets({
+    username: args.user,
+    since: args.since,
+    until: args.until,
+    contains: args.contains,
+    lang: args.lang,
+    limit: args.limit,
+  });
+
+  if (args.json) {
+    rows.forEach((r) => console.log(JSON.stringify(r)));
+    return;
+  }
+
+  rows.forEach((r) => {
+    console.log(`[${r.created_at ?? ""}] @${(r as any).username}: ${truncate(r.text, 280)}`);
+  });
+};
 
 async function bootstrap() {
   const argv = yargs(hideBin(process.argv))
@@ -32,58 +70,17 @@ async function bootstrap() {
     .help()
     .parseSync();
 
+  const cmd = argv._[0] as string;
   const { config, secrets } = loadConfig();
   const store = new Store();
 
-  async function resolveUsernames(): Promise<string[]> {
-    if (config.mode === "static" && config.staticUsernames?.length) {
-      return config.staticUsernames;
-    }
-    // dynamic mode
-    try {
-      const followings = await getMyFollowings(client);
-      logger.info({ count: followings.length }, "已获取关注列表");
-      return followings;
-    } catch (e: any) {
-      logger.error({ error: e?.message || String(e) }, "获取关注列表失败，请检查授权");
-      return config.staticUsernames ?? [];
-    }
-  }
-
-  const cmd = (argv._[0] || "start") as string;
+  // show 不需要 API 客户端，直接处理后退出
   if (cmd === "show") {
-    const a = argv as any;
-    if (a.users) {
-      const users = store.listUsers();
-      for (const u of users) {
-        console.log(`@${u.username}${u.name ? ` (${u.name})` : ""} [${u.id}]`);
-      }
-      process.exit(0);
-    }
-
-    const rows = store.queryTweets({
-      username: a.user,
-      since: a.since,
-      until: a.until,
-      contains: a.contains,
-      lang: a.lang,
-      limit: a.limit,
-    });
-
-    if (a.json) {
-      for (const r of rows) {
-        console.log(JSON.stringify(r));
-      }
-      process.exit(0);
-    }
-
-    for (const r of rows) {
-      console.log(`[${r.created_at ?? ""}] @${(r as any).username}: ${truncate(r.text, 280)}`);
-    }
+    handleShow(store, argv as unknown as ShowArgs);
     process.exit(0);
   }
 
-  // For commands requiring API access, create client after handling show
+  // 以下命令需要 API 客户端
   const agent = getProxyAgent(config.proxy);
   let client: TwitterApi;
   try {
@@ -93,22 +90,32 @@ async function bootstrap() {
     process.exit(1);
   }
 
+  const resolveUsernames = async (): Promise<string[]> => {
+    if (config.mode === "static" && config.staticUsernames?.length) {
+      return config.staticUsernames;
+    }
+    try {
+      const followings = await getMyFollowings(client);
+      logger.info({ count: followings.length }, "已获取关注列表");
+      return followings;
+    } catch (e: any) {
+      logger.error({ error: e?.message || String(e) }, "获取关注列表失败，请检查授权");
+      return config.staticUsernames ?? [];
+    }
+  };
+
   if (cmd === "fetch-once") {
     const usernames = await resolveUsernames();
     await fetchForUsernames(client, store, usernames, config.maxPerUser, config.concurrency);
     process.exit(0);
   }
 
-  // show handled above
-
   if (cmd === "start") {
     const task = async () => {
       const usernames = await resolveUsernames();
       await fetchForUsernames(client, store, usernames, config.maxPerUser, config.concurrency);
     };
-    // 立即执行一次
     await task();
-    // 启动定时
     startScheduler(config.schedule, task);
   }
 }

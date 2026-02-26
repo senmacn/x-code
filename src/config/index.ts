@@ -16,11 +16,14 @@ const ConfigSchema = z.object({
   concurrency: z.number().int().min(1).max(10).default(3),
 });
 
+function resolveConfigPath(): string {
+  const configPath = path.join(process.cwd(), "config.json");
+  return fs.existsSync(configPath) ? configPath : path.join(process.cwd(), "config.default.json");
+}
+
 export function loadConfig(): { config: AppConfig; secrets: EnvSecrets } {
   const configPath = resolveConfigPath();
-  const raw = fs.existsSync(configPath)
-    ? JSON.parse(fs.readFileSync(configPath, "utf-8"))
-    : JSON.parse(fs.readFileSync(path.join(process.cwd(), "config.default.json"), "utf-8"));
+  const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
   const parsed = ConfigSchema.safeParse(raw);
   if (!parsed.success) {
@@ -43,14 +46,4 @@ export function loadConfig(): { config: AppConfig; secrets: EnvSecrets } {
   };
 
   return { config, secrets };
-}
-
-function resolveConfigPath(): string {
-  const candidates = [
-    path.join(process.cwd(), "config.json"),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
-  }
-  return path.join(process.cwd(), "config.default.json");
 }

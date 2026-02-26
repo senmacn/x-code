@@ -4,16 +4,11 @@ import { Store } from "../data/store";
 import { TweetEntity, UserEntity } from "../data/types";
 import { getUserByUsername, getUserTweetsSince } from "../clients/xClient";
 
-export async function fetchForUsernames(
-  client: TwitterApi,
-  store: Store,
-  usernames: string[],
-  maxPerUser: number,
-  concurrency = 3
-) {
+export async function fetchForUsernames(client: TwitterApi, store: Store, usernames: string[], maxPerUser: number, concurrency = 3) {
   const fetchOne = async (username: string) => {
     try {
-      const user = await getUserByUsername(client, username);
+      const uname = username.replace(/^@/, "").trim();
+      const user = await getUserByUsername(client, uname);
       const userEntity: UserEntity = { id: user.id, username: user.username, name: user.name, last_seen_at: Date.now() };
       store.upsertUser(userEntity);
 
@@ -41,8 +36,11 @@ export async function fetchForUsernames(
 
       logger.info({ username, count: entities.length }, "拉取并保存推文完毕");
     } catch (err: any) {
-      const msg = err?.data?.detail || err?.message || String(err);
-      logger.error({ username, error: msg }, "拉取用户推文失败");
+      const status = err?.code || err?.status;
+      const title = err?.data?.title;
+      const detail = err?.data?.detail;
+      const msg = detail || title || err?.message || String(err);
+      logger.error({ username, status, error: msg }, "拉取用户推文失败");
     }
   };
 
