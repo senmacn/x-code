@@ -4,14 +4,21 @@
 # runtime data
 data.db
 
+# user config (overrides config.default.json)
+config.json
+
 # build output
 dist/
 
 # dependencies
 node_modules/
 
-# lock files (project uses pnpm, keep pnpm-lock.yaml if present)
+# lock files
 package-lock.json
+
+# Next.js
+web/.next/
+web/out/
 
 # claude
 .claude

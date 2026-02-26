@@ -118,6 +118,7 @@ export class Store {
     contains?: string;
     lang?: string;
     limit?: number;
+    offset?: number;
   }) {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
@@ -130,14 +131,69 @@ export class Store {
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const sql = `
-      SELECT t.*, u.username FROM tweets t
+      SELECT t.*, u.username, u.name as user_name FROM tweets t
       JOIN users u ON t.user_id = u.id
       ${where}
-      ORDER BY t.created_at DESC LIMIT ?
+      ORDER BY t.created_at DESC LIMIT ? OFFSET ?
     `;
-    params.push(opts.limit ?? 20);
+    params.push(opts.limit ?? 20, opts.offset ?? 0);
 
-    return this.db.prepare(sql).all(...params) as (TweetEntity & { username: string })[];
+    return this.db.prepare(sql).all(...params) as (TweetEntity & { username: string; user_name?: string })[];
+  }
+
+  countTweets(opts: {
+    username?: string;
+    since?: string;
+    until?: string;
+    contains?: string;
+    lang?: string;
+  }) {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (opts.username) { conditions.push("u.username = ? COLLATE NOCASE"); params.push(opts.username); }
+    if (opts.since)    { conditions.push("t.created_at >= ?"); params.push(opts.since); }
+    if (opts.until)    { conditions.push("t.created_at <= ?"); params.push(opts.until); }
+    if (opts.lang)     { conditions.push("t.lang = ?"); params.push(opts.lang); }
+    if (opts.contains) { conditions.push("t.text LIKE ? COLLATE NOCASE"); params.push(`%${opts.contains}%`); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const sql = `SELECT COUNT(*) as count FROM tweets t JOIN users u ON t.user_id = u.id ${where}`;
+    const row = this.db.prepare(sql).get(...params) as { count: number };
+    return row.count;
+  }
+
+  getTotalTweetCount(): number {
+    const row = this.db.prepare("SELECT COUNT(*) as count FROM tweets").get() as { count: number };
+    return row.count;
+  }
+
+  getTodayTweetCount(): number {
+    const today = new Date().toISOString().split("T")[0];
+    const row = this.db.prepare(
+      "SELECT COUNT(*) as count FROM tweets WHERE created_at >= ?"
+    ).get(`${today}T00:00:00.000Z`) as { count: number };
+    return row.count;
+  }
+
+  getDailyTweetCounts(days = 30): { date: string; count: number }[] {
+    return this.db.prepare(`
+      SELECT strftime('%Y-%m-%d', created_at) as date, COUNT(*) as count
+      FROM tweets
+      WHERE created_at >= datetime('now', '-${days} days')
+      GROUP BY date
+      ORDER BY date ASC
+    `).all() as { date: string; count: number }[];
+  }
+
+  getUserTweetCounts(): { id: string; username: string; name?: string; last_seen_at?: number; count: number }[] {
+    return this.db.prepare(`
+      SELECT u.id, u.username, u.name, u.last_seen_at, COUNT(t.id) as count
+      FROM users u
+      LEFT JOIN tweets t ON u.id = t.user_id
+      GROUP BY u.id
+      ORDER BY count DESC
+    `).all() as { id: string; username: string; name?: string; last_seen_at?: number; count: number }[];
   }
 
   close() {

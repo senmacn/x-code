@@ -21,6 +21,11 @@ function resolveConfigPath(): string {
   return fs.existsSync(configPath) ? configPath : path.join(process.cwd(), "config.default.json");
 }
 
+export function saveConfig(config: AppConfig): void {
+  const configPath = path.join(process.cwd(), "config.json");
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+}
+
 export function loadConfig(): { config: AppConfig; secrets: EnvSecrets } {
   const configPath = resolveConfigPath();
   const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
