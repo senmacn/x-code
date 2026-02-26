@@ -92,7 +92,7 @@ export class Store {
       return this.db.prepare(`
         SELECT t.* FROM tweets t
         JOIN users u ON t.user_id=u.id
-        WHERE u.username = ?
+        WHERE u.username = ? COLLATE NOCASE
         ORDER BY t.created_at DESC
         LIMIT ?
       `).all(username, limit) as TweetEntity[];
@@ -122,7 +122,7 @@ export class Store {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
 
-    if (opts.username) { conditions.push("u.username = ?"); params.push(opts.username); }
+    if (opts.username) { conditions.push("u.username = ? COLLATE NOCASE"); params.push(opts.username); }
     if (opts.since)    { conditions.push("t.created_at >= ?"); params.push(opts.since); }
     if (opts.until)    { conditions.push("t.created_at <= ?"); params.push(opts.until); }
     if (opts.lang)     { conditions.push("t.lang = ?"); params.push(opts.lang); }

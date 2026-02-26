@@ -1,1 +1,17 @@
+# environment
 .env
+
+# runtime data
+data.db
+
+# build output
+dist/
+
+# dependencies
+node_modules/
+
+# lock files (project uses pnpm, keep pnpm-lock.yaml if present)
+package-lock.json
+
+# claude
+.claude
