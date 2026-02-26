@@ -1,62 +1,110 @@
-# X Fetcher (TypeScript)
+# X Monitor
 
-一个通过本地代理访问 X，定时拉取你关注用户最新发帖的 TypeScript 项目，并支持在终端中读取与展示内容。
+通过本地代理访问 X，定时拉取关注用户的最新发帖，支持 Web 界面与 CLI 两种使用方式。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────┐
+│  前端 (web/)          Next.js 14 · 端口 3000     │
+│  ─────────────────────────────────────────────  │
+│  后端 (src/api/)      Express · 端口 3001        │
+│    ├── REST API       推文 / 用户 / 分析 / 配置  │
+│    └── 调度器         node-cron 定时拉取         │
+│  ─────────────────────────────────────────────  │
+│  数据层 (src/data/)   SQLite (data.db)           │
+│  X 客户端 (src/clients/)  twitter-api-v2        │
+└─────────────────────────────────────────────────┘
+```
+
+详细文档：[后端 →](src/README.md) · [前端 →](web/README.md)
+
+---
 
 ## 快速开始
 
-1. 安装依赖：`npm install`
-2. 复制环境示例：`cp .env.example .env` 并填入授权与代理（可选）
-3. 配置关注策略：编辑 `config.json` 或使用默认的 `config.default.json`
-4. 开发运行：`npm run dev`（首次会立即拉取并按配置定时执行）
-5. 生产构建与启动：`npm run build && npm run start`
-
-## 命令
-
-- `npm run dev`：开发模式启动（`ts-node`），立即拉取并按 `schedule` 定时执行
-- `npm run fetch-once`：立即拉取一次
-- `npm run show`：在终端读取并显示已存储推文
-  - 过滤：`--user <username>`、`--since <ISO>`、`--until <ISO>`、`--contains <keyword>`、`--lang <code>`、`--limit <n>`
-  - 列出用户：`--users`（显示当前跟踪的用户列表）
-  - JSON 输出：`--json`（以 JSON 行输出便于导出或二次处理）
-
-示例：
+### 1. 安装依赖
 
 ```bash
-npm run show -- --user jack --limit 10
-# 按时间范围与关键字筛选
-npm run show -- --since 2024-01-01T00:00:00Z --until 2024-12-31T23:59:59Z --contains "beta"
-# 列出已跟踪的用户
-npm run show -- --users
-# 导出为 JSON 行
-npm run show -- --user jack --limit 50 --json > jack.jsonl
+npm install
+cd web && npm install && cd ..
 ```
 
-## 配置说明（`config.json` 或 `config.default.json`）
+### 2. 配置环境变量
 
-- `mode`: `static` 或 `dynamic`（动态模式需要用户授权以获取关注列表）
-- `staticUsernames`: 静态用户名数组（`static` 模式下有效）
-- `schedule`: cron 表达式（如 `*/10 * * * *` 表示每 10 分钟）
-- `proxy`: 代理地址（如 `http://127.0.0.1:7890`），也可通过环境变量 `HTTP_PROXY`/`HTTPS_PROXY`
-- `maxPerUser`: 每次拉取每用户检查的最近推文数
-- `concurrency`: 预留并发参数（当前串行执行，后续可扩展）
+```bash
+cp .env.example .env
+# 填入 X API 授权信息（见下方「授权说明」）
+```
+
+### 3. 编辑配置
+
+编辑 `config.default.json`，或复制为 `config.json`（优先级更高，不会被 git 追踪）：
+
+```json
+{
+  "mode": "static",
+  "staticUsernames": ["username1", "username2"],
+  "schedule": "*/15 * * * *",
+  "proxy": "http://127.0.0.1:7890",
+  "maxPerUser": 20,
+  "concurrency": 3
+}
+```
+
+### 4. 启动
+
+**Web 模式（推荐）**
+
+```bash
+npm run dev:all        # 同时启动后端 API + 前端界面
+```
+
+访问 `http://localhost:3000` 打开 Web 界面。
+
+**纯 CLI 模式**
+
+```bash
+npm run dev            # 启动定时拉取守护进程
+npm run fetch-once     # 立即拉取一次
+npm run show -- --user jack --limit 20   # 终端查看推文
+```
+
+---
+
+## 配置项
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `mode` | `static` \| `dynamic` | 静态：手动维护用户名；动态：自动同步关注列表（需 OAuth） |
+| `staticUsernames` | `string[]` | 静态模式下的用户名列表 |
+| `schedule` | `string` | Cron 表达式，如 `*/15 * * * *` |
+| `proxy` | `string` | 代理地址，也可通过 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量设置 |
+| `maxPerUser` | `number` | 每次每用户最多拉取的推文条数 |
+| `concurrency` | `number` | 并发拉取的用户数（1–10） |
+
+---
 
 ## 授权说明
 
-- 动态关注列表需要用户上下文（OAuth1.0a）提供 `X_API_KEY` 等；
-- 仅使用公开读取可尝试 `X_BEARER_TOKEN`，但接口可用性取决于 X 的当前策略；
-- 如果缺少授权，项目将回退到 `staticUsernames`。
+| 场景 | 所需凭据 |
+|------|---------|
+| 仅读取静态用户推文 | `X_BEARER_TOKEN`（App-only） |
+| 动态获取关注列表 | `X_API_KEY` + `X_API_SECRET` + `X_ACCESS_TOKEN` + `X_ACCESS_SECRET`（OAuth 1.0a） |
 
-## 存储
+缺少授权时会自动回退到 `staticUsernames`，日志中会有提示。
 
-- 本地 SQLite（`data.db`）存储用户与推文，去重以 `tweet.id` 为键；
-- 可通过 `npm run show` 在终端快速查看保存的内容，支持用户名、时间范围、语言与关键字筛选；
-- 已添加索引：`(user_id, created_at)` 与 `created_at`，查询更高效。
+---
 
-## 代理
+## 数据存储
 
-- 支持从配置或环境变量读取代理，所有请求将通过该代理发送。
+- 本地 SQLite 文件 `data.db`，不进入 git 追踪
+- 推文以 `tweet.id` 去重，重复写入安全
+- 索引：`(user_id, created_at)` + `created_at`
+
+---
 
 ## 注意
 
-- 若调用接口返回 429（限流）或权限错误，日志会提示并跳过该用户；
-- 如需更强的终端交互（TUI），可以在后续迭代中加入。
+- 接口返回 429（限流）或权限错误时，日志会提示并跳过该用户，不影响其他用户继续拉取
+- `config.json` 不进入 git 追踪，适合存放本地个性化配置；`config.default.json` 作为模板随仓库保存
