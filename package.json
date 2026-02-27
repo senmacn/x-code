@@ -4,6 +4,11 @@
   "description": "Fetch latest posts from followed users on X via proxy",
   "main": "dist/cli/index.js",
   "scripts": {
+    "runtime-check": "node scripts/ensure-runtime.js",
+    "runtime-check:web": "node scripts/ensure-runtime.js web",
+    "predev:all": "npm run runtime-check",
+    "preserve": "npm run runtime-check",
+    "predev:web": "npm run runtime-check:web",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli/index.js start",
     "dev": "ts-node src/cli/index.ts start",

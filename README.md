@@ -26,9 +26,13 @@
 ### 1. 安装依赖
 
 ```bash
+nvm use            # 建议使用 .nvmrc 指定的 Node 版本
 npm install
 cd web && npm install && cd ..
 ```
+
+> 若首次切换 Node 版本后后端启动报错（`better-sqlite3` 相关），执行：
+> `npm rebuild better-sqlite3`
 
 ### 2. 配置环境变量
 
