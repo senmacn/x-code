@@ -112,5 +112,7 @@ export const api = {
 
   actions: {
     fetchNow: () => post<{ ok: boolean; message: string }>("/actions/fetch"),
+    mediaBackfill: (payload?: { usernames?: string[]; limit?: number; force?: boolean }) =>
+      post<{ ok: boolean; message: string }>("/actions/media-backfill", payload),
   },
 };

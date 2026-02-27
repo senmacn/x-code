@@ -4,10 +4,22 @@ export interface Tweet {
   text: string;
   created_at?: string;
   lang?: string;
+  media_json?: string;
   entities_json?: string;
   raw_json?: string;
   username: string;
   user_name?: string;
+}
+
+export interface MediaCacheConfig {
+  enabled: boolean;
+  rootDir: string;
+  cacheForPriorityOnly: boolean;
+  includeVideoFiles: boolean;
+  requestTimeoutMs: number;
+  maxDiskUsage: number;
+  ttlDays: number;
+  cleanupCron: string;
 }
 
 export interface User {
@@ -35,10 +47,12 @@ export interface FetchStatus {
 export interface AppConfig {
   mode: "static" | "dynamic";
   staticUsernames?: string[];
+  priorityUsernames?: string[];
   schedule: string;
   proxy?: string;
   maxPerUser: number;
   concurrency: number;
+  mediaCache?: MediaCacheConfig;
 }
 
 export interface DailyStat {

@@ -1,8 +1,9 @@
 import { TwitterApi } from "twitter-api-v2";
 import { logger } from "../utils/logger";
 import { Store } from "../data/store";
-import { TweetEntity, UserEntity } from "../data/types";
+import { AppConfig, TweetEntity, UserEntity } from "../data/types";
 import { getUserByUsername, getUserTweetsSince } from "../clients/xClient";
+import { cacheMediaForTweet } from "./mediaCache";
 
 export interface FetchSummary {
   totalUsers: number;
@@ -13,7 +14,11 @@ export interface FetchSummary {
   fetchedTweets: number;
 }
 
-const userRateLimitUntil = new Map<string, number>();
+export interface FetchProgress extends FetchSummary {
+  processedUsers: number;
+  username?: string;
+}
+
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 15 * 60 * 1000;
 
 const toEpochMs = (value: unknown): number | undefined => {
@@ -59,7 +64,11 @@ export async function fetchForUsernames(
   store: Store,
   usernames: string[],
   maxPerUser: number,
-  concurrency = 3
+  concurrency = 3,
+  appConfig?: AppConfig,
+  hooks?: {
+    onProgress?: (progress: FetchProgress) => void;
+  }
 ): Promise<FetchSummary> {
   const summary: FetchSummary = {
     totalUsers: usernames.length,
@@ -69,17 +78,28 @@ export async function fetchForUsernames(
     skippedRateLimitedUsers: 0,
     fetchedTweets: 0,
   };
+  let processedUsers = 0;
+  store.cleanupExpiredUserRateLimits();
+  const emitProgress = (username?: string) => {
+    hooks?.onProgress?.({
+      ...summary,
+      processedUsers,
+      username,
+    });
+  };
 
   const fetchOne = async (username: string) => {
     const uname = normalizeUsername(username);
     const unameKey = uname.toLowerCase();
-    const blockedUntil = userRateLimitUntil.get(unameKey);
+    const blockedUntil = store.getUserRateLimit(unameKey);
     if (blockedUntil && blockedUntil > Date.now()) {
       summary.skippedRateLimitedUsers += 1;
       logger.info(
         { username: uname, retryAt: new Date(blockedUntil).toISOString() },
         "用户仍处于限流冷却期，跳过本轮拉取"
       );
+      processedUsers += 1;
+      emitProgress(uname);
       return;
     }
 
@@ -89,32 +109,58 @@ export async function fetchForUsernames(
       store.upsertUser(userEntity);
 
       const sinceId = store.getLastTweetId(user.id);
-      const tweets = await getUserTweetsSince(client, user.id, sinceId, maxPerUser);
-      if (!tweets || tweets.length === 0) {
+      const timelineItems = await getUserTweetsSince(client, user.id, sinceId, maxPerUser);
+      if (!timelineItems || timelineItems.length === 0) {
         summary.successUsers += 1;
         logger.info({ username: uname }, "无增量推文");
+        store.clearUserRateLimit(unameKey);
+        processedUsers += 1;
+        emitProgress(uname);
         return;
       }
 
-      const entities: TweetEntity[] = tweets.map((t) => ({
-        id: t.id,
-        user_id: user.id,
-        text: t.text,
-        created_at: t.created_at,
-        lang: t.lang,
-        entities_json: t.entities ? JSON.stringify(t.entities) : undefined,
-        raw_json: JSON.stringify(t),
-      }));
+      const entities: TweetEntity[] = [];
+      for (const { tweet, media } of timelineItems) {
+        entities.push({
+          id: tweet.id,
+          user_id: user.id,
+          text: tweet.text,
+          created_at: tweet.created_at,
+          lang: tweet.lang,
+          media_json: media.length ? JSON.stringify(media) : undefined,
+          entities_json: tweet.entities ? JSON.stringify(tweet.entities) : undefined,
+          raw_json: JSON.stringify(tweet),
+        });
+      }
       store.saveTweets(entities);
+
+      if (appConfig) {
+        for (const { tweet, media } of timelineItems) {
+          if (!media.length) continue;
+          const cached = await cacheMediaForTweet({
+            store,
+            config: appConfig,
+            username: user.username,
+            tweetId: tweet.id,
+            media,
+          });
+          if (cached.changed) {
+            store.updateTweetMediaJson(tweet.id, JSON.stringify(cached.media));
+          }
+        }
+      }
+
       summary.successUsers += 1;
       summary.fetchedTweets += entities.length;
-      userRateLimitUntil.delete(unameKey);
+      store.clearUserRateLimit(unameKey);
 
       // 更新最新 tweet id（时间通常已按降序返回）
       const latestId = entities[0]?.id;
       if (latestId) store.setLastTweetId(user.id, latestId);
 
       logger.info({ username: uname, count: entities.length }, "拉取并保存推文完毕");
+      processedUsers += 1;
+      emitProgress(uname);
     } catch (err: any) {
       const status = getStatusCode(err);
       const title = err?.data?.title;
@@ -124,16 +170,20 @@ export async function fetchForUsernames(
       if (status === 429) {
         summary.rateLimitedUsers += 1;
         const resetAt = extractRateLimitResetAt(err) ?? Date.now() + DEFAULT_RATE_LIMIT_BACKOFF_MS;
-        userRateLimitUntil.set(unameKey, resetAt);
+        store.setUserRateLimit(unameKey, resetAt, msg);
         logger.warn(
           { username: uname, status, retryAt: new Date(resetAt).toISOString(), error: msg },
           "用户触发限流，已进入冷却期"
         );
+        processedUsers += 1;
+        emitProgress(uname);
         return;
       }
 
       summary.failedUsers += 1;
       logger.error({ username: uname, status, error: msg }, "拉取用户推文失败");
+      processedUsers += 1;
+      emitProgress(uname);
     }
   };
 

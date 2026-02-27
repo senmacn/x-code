@@ -6,6 +6,7 @@ import { createXClient, getMyFollowings } from "../clients/xClient";
 import TwitterApi from "twitter-api-v2";
 import { Store } from "../data/store";
 import { fetchForUsernames } from "../services/fetcher";
+import { backfillMediaCache } from "../services/mediaCache";
 import { startScheduler } from "../services/scheduler";
 import { logger } from "../utils/logger";
 import { truncate } from "../utils/text";
@@ -53,6 +54,23 @@ async function bootstrap() {
     .command("start", "启动定时拉取服务")
     .command("fetch-once", "立即拉取一次")
     .command(
+      "backfill-media",
+      "回填媒体缓存（默认处理 priorityUsernames）",
+      (y: Argv) =>
+        y
+          .option("users", {
+            type: "array",
+            string: true,
+            describe: "指定用户名列表（默认使用 priorityUsernames）",
+          })
+          .option("force", {
+            type: "boolean",
+            default: false,
+            describe: "忽略 priorityUsernames，强制回填命中的推文",
+          })
+          .option("limit", { type: "number", default: 500, describe: "最多处理推文条数" })
+    )
+    .command(
       "show",
       "在终端显示已存储推文",
       (y: Argv) =>
@@ -77,6 +95,27 @@ async function bootstrap() {
   // show 不需要 API 客户端，直接处理后退出
   if (cmd === "show") {
     handleShow(store, argv as unknown as ShowArgs);
+    process.exit(0);
+  }
+
+  if (cmd === "backfill-media") {
+    const inputUsers = ((argv as any).users as string[] | undefined)?.map((u) => String(u));
+    const targetUsers =
+      inputUsers && inputUsers.length
+        ? inputUsers
+        : config.priorityUsernames?.length
+        ? config.priorityUsernames
+        : config.staticUsernames;
+    const force = Boolean((argv as any).force);
+    const limit = Math.max(1, Math.min(5000, Number((argv as any).limit ?? 500)));
+    const summary = await backfillMediaCache({
+      store,
+      config,
+      usernames: targetUsers,
+      limit,
+      force,
+    });
+    logger.info(summary, "媒体回填完成");
     process.exit(0);
   }
 
@@ -106,14 +145,28 @@ async function bootstrap() {
 
   if (cmd === "fetch-once") {
     const usernames = await resolveUsernames();
-    await fetchForUsernames(client, store, usernames, config.maxPerUser, config.concurrency);
+    await fetchForUsernames(
+      client,
+      store,
+      usernames,
+      config.maxPerUser,
+      config.concurrency,
+      config
+    );
     process.exit(0);
   }
 
   if (cmd === "start") {
     const task = async () => {
       const usernames = await resolveUsernames();
-      await fetchForUsernames(client, store, usernames, config.maxPerUser, config.concurrency);
+      await fetchForUsernames(
+        client,
+        store,
+        usernames,
+        config.maxPerUser,
+        config.concurrency,
+        config
+      );
     };
     await task();
     startScheduler(config.schedule, task);

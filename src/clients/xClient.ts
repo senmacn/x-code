@@ -1,4 +1,4 @@
-import TwitterApi, { IClientSettings, TwitterApiTokens } from "twitter-api-v2";
+import TwitterApi, { IClientSettings, TwitterApiTokens, type MediaObjectV2, type TweetV2 } from "twitter-api-v2";
 import type { Agent } from "http";
 import { logger } from "../utils/logger";
 import { EnvSecrets } from "../data/types";
@@ -31,15 +31,39 @@ export async function getUserByUsername(client: TwitterApi, username: string) {
   return res.data;
 }
 
-export async function getUserTweetsSince(client: TwitterApi, userId: string, sinceId?: string, maxResults = 20) {
+export interface TimelineTweetWithMedia {
+  tweet: TweetV2;
+  media: MediaObjectV2[];
+}
+
+export async function getUserTweetsSince(
+  client: TwitterApi,
+  userId: string,
+  sinceId?: string,
+  maxResults = 20
+): Promise<TimelineTweetWithMedia[]> {
   const params: Record<string, unknown> = {
     exclude: ["retweets", "replies"],
     max_results: Math.min(Math.max(maxResults, 5), 100),
     "tweet.fields": ["created_at", "lang", "entities"],
+    expansions: ["attachments.media_keys"],
+    "media.fields": [
+      "type",
+      "url",
+      "preview_image_url",
+      "width",
+      "height",
+      "alt_text",
+      "variants",
+    ],
   };
   if (sinceId) params.since_id = sinceId;
   const res = await client.v2.userTimeline(userId, params as any);
-  return res.tweets;
+  const tweets = res.tweets ?? [];
+  return tweets.map((tweet) => ({
+    tweet,
+    media: res.includes.medias(tweet),
+  }));
 }
 
 export async function getMyFollowings(client: TwitterApi): Promise<string[]> {

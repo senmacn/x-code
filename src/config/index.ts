@@ -7,13 +7,52 @@ import { logger } from "../utils/logger";
 
 dotenv.config();
 
+const DEFAULT_MEDIA_CACHE = {
+  enabled: true,
+  rootDir: "media-cache",
+  cacheForPriorityOnly: true,
+  includeVideoFiles: false,
+  requestTimeoutMs: 12000,
+  maxDiskUsage: 2048,
+  ttlDays: 30,
+  cleanupCron: "0 * * * *",
+} as const;
+
 const ConfigSchema = z.object({
   mode: z.enum(["static", "dynamic"]).default("static"),
   staticUsernames: z.array(z.string()).optional(),
+  priorityUsernames: z.array(z.string()).optional(),
   schedule: z.string().default("*/5 * * * *"),
   proxy: z.string().optional(),
   maxPerUser: z.number().int().min(1).default(20),
   concurrency: z.number().int().min(1).max(10).default(3),
+  mediaCache: z
+    .object({
+      enabled: z.boolean().default(DEFAULT_MEDIA_CACHE.enabled),
+      rootDir: z.string().min(1).default(DEFAULT_MEDIA_CACHE.rootDir),
+      cacheForPriorityOnly: z.boolean().default(DEFAULT_MEDIA_CACHE.cacheForPriorityOnly),
+      includeVideoFiles: z.boolean().default(DEFAULT_MEDIA_CACHE.includeVideoFiles),
+      requestTimeoutMs: z
+        .number()
+        .int()
+        .min(1000)
+        .max(60000)
+        .default(DEFAULT_MEDIA_CACHE.requestTimeoutMs),
+      maxDiskUsage: z
+        .number()
+        .int()
+        .min(100)
+        .max(1024 * 1024)
+        .default(DEFAULT_MEDIA_CACHE.maxDiskUsage),
+      ttlDays: z
+        .number()
+        .int()
+        .min(1)
+        .max(3650)
+        .default(DEFAULT_MEDIA_CACHE.ttlDays),
+      cleanupCron: z.string().default(DEFAULT_MEDIA_CACHE.cleanupCron),
+    })
+    .optional(),
 });
 
 function resolveConfigPath(): string {
@@ -40,6 +79,12 @@ export function loadConfig(): { config: AppConfig; secrets: EnvSecrets } {
   const config: AppConfig = {
     ...parsed.data,
     proxy: parsed.data.proxy ?? envProxy,
+    staticUsernames: parsed.data.staticUsernames ?? [],
+    priorityUsernames: parsed.data.priorityUsernames ?? [],
+    mediaCache: {
+      ...DEFAULT_MEDIA_CACHE,
+      ...(parsed.data.mediaCache ?? {}),
+    },
   };
 
   const secrets: EnvSecrets = {

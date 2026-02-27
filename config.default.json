@@ -1,8 +1,19 @@
 {
   "mode": "static",
   "staticUsernames": ["@tzwqbest"],
+  "priorityUsernames": ["@tzwqbest"],
   "schedule": "*/15 * * * *",
   "proxy": "http://127.0.0.1:7890",
   "maxPerUser": 20,
-  "concurrency": 3
+  "concurrency": 3,
+  "mediaCache": {
+    "enabled": true,
+    "rootDir": "media-cache",
+    "cacheForPriorityOnly": true,
+    "includeVideoFiles": false,
+    "requestTimeoutMs": 12000,
+    "maxDiskUsage": 2048,
+    "ttlDays": 30,
+    "cleanupCron": "0 * * * *"
+  }
 }

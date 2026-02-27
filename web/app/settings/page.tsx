@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { TopBar } from "@/components/layout/TopBar";
 import { api } from "@/lib/api";
-import type { AppConfig } from "@/lib/types";
+import type { AppConfig, MediaCacheConfig } from "@/lib/types";
 import { Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
@@ -43,6 +43,7 @@ export default function SettingsPage() {
   const { data: remoteConfig, mutate, error: configLoadError } = useSWR("config", api.config.get);
   const [form, setForm] = useState<Partial<AppConfig>>({});
   const [saving, setSaving] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -51,6 +52,17 @@ export default function SettingsPage() {
 
   const set = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+  const setMediaCache = <K extends keyof MediaCacheConfig>(
+    key: K,
+    value: MediaCacheConfig[K]
+  ) =>
+    setForm((f) => ({
+      ...f,
+      mediaCache: {
+        ...(f.mediaCache ?? remoteConfig?.mediaCache ?? {}),
+        [key]: value,
+      },
+    }));
 
   const handleSave = async () => {
     setSaving(true);
@@ -62,6 +74,18 @@ export default function SettingsPage() {
       toast.error(e instanceof Error ? e.message : "保存失败");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleMediaBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const resp = await api.actions.mediaBackfill({ force: false });
+      toast.success(resp.message || "媒体回填任务已启动");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "启动媒体回填失败");
+    } finally {
+      setBackfilling(false);
     }
   };
 
@@ -126,6 +150,25 @@ export default function SettingsPage() {
               </div>
             </Field>
 
+            {/* Priority users */}
+            <Field label="重点用户" hint="这些用户可启用本地媒体持久化；逗号分隔">
+              <input
+                type="text"
+                value={(form.priorityUsernames ?? []).join(",")}
+                onChange={(e) =>
+                  set(
+                    "priorityUsernames",
+                    e.target.value
+                      .split(",")
+                      .map((v) => v.trim())
+                      .filter(Boolean)
+                  )
+                }
+                className={inputCls}
+                placeholder="jack,elonmusk"
+              />
+            </Field>
+
             {/* maxPerUser */}
             <Field label="每用户最多条数" hint="每次拉取时每个用户获取的最新推文数">
               <div className="flex items-center gap-3">
@@ -168,6 +211,72 @@ export default function SettingsPage() {
                 placeholder="http://127.0.0.1:7890"
               />
             </Field>
+
+            {/* Media cache */}
+            <Field label="媒体本地缓存" hint="为重点用户持久化图片/视频预览到本地目录">
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.mediaCache?.enabled ?? true}
+                    onChange={(e) => setMediaCache("enabled", e.target.checked)}
+                  />
+                  启用本地媒体缓存
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.mediaCache?.cacheForPriorityOnly ?? true}
+                    onChange={(e) => setMediaCache("cacheForPriorityOnly", e.target.checked)}
+                  />
+                  仅缓存重点用户
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={form.mediaCache?.includeVideoFiles ?? false}
+                    onChange={(e) => setMediaCache("includeVideoFiles", e.target.checked)}
+                  />
+                  缓存视频原文件（流量更高）
+                </label>
+                <input
+                  type="text"
+                  value={form.mediaCache?.rootDir ?? "media-cache"}
+                  onChange={(e) => setMediaCache("rootDir", e.target.value)}
+                  className={inputCls}
+                  placeholder="media-cache"
+                />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <input
+                    type="number"
+                    min={100}
+                    value={form.mediaCache?.maxDiskUsage ?? 2048}
+                    onChange={(e) =>
+                      setMediaCache("maxDiskUsage", Math.max(100, parseInt(e.target.value || "2048", 10)))
+                    }
+                    className={inputCls}
+                    placeholder="总容量上限(MB)"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.mediaCache?.ttlDays ?? 30}
+                    onChange={(e) =>
+                      setMediaCache("ttlDays", Math.max(1, parseInt(e.target.value || "30", 10)))
+                    }
+                    className={inputCls}
+                    placeholder="过期天数"
+                  />
+                  <input
+                    type="text"
+                    value={form.mediaCache?.cleanupCron ?? "0 * * * *"}
+                    onChange={(e) => setMediaCache("cleanupCron", e.target.value)}
+                    className={inputCls}
+                    placeholder="清理 Cron"
+                  />
+                </div>
+              </div>
+            </Field>
           </div>
 
           {configLoadError && (
@@ -185,6 +294,13 @@ export default function SettingsPage() {
             >
               <Save size={14} />
               {saving ? "保存中…" : "保存配置"}
+            </button>
+            <button
+              onClick={handleMediaBackfill}
+              disabled={backfilling || !remoteConfig}
+              className="px-4 py-2 border border-slate-200 text-sm text-slate-700 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition-colors"
+            >
+              {backfilling ? "回填启动中…" : "执行媒体回填"}
             </button>
           </div>
         </div>
