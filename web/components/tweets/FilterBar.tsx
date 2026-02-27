@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect, useRef } from "react";
 import { Search, X } from "lucide-react";
 import type { TweetFilters } from "@/lib/types";
 import type { User } from "@/lib/types";
@@ -12,8 +13,27 @@ interface FilterBarProps {
 }
 
 export const FilterBar = ({ filters, users, onChange }: FilterBarProps) => {
+  const [searchText, setSearchText] = useState(filters.contains ?? "");
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Sync external filter changes back to local state
+  useEffect(() => {
+    setSearchText(filters.contains ?? "");
+  }, [filters.contains]);
+
   const set = (key: keyof TweetFilters, value: string | undefined) =>
     onChange({ ...filters, [key]: value || undefined, offset: 0 });
+
+  const handleSearchChange = (value: string) => {
+    setSearchText(value);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      set("contains", value);
+    }, 400);
+  };
+
+  // Cleanup timer on unmount
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const hasFilters = !!(filters.username || filters.contains || filters.since || filters.until);
 
@@ -26,8 +46,8 @@ export const FilterBar = ({ filters, users, onChange }: FilterBarProps) => {
           <input
             type="text"
             placeholder="搜索推文内容…"
-            value={filters.contains ?? ""}
-            onChange={(e) => set("contains", e.target.value)}
+            value={searchText}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
           />
         </div>
@@ -55,7 +75,7 @@ export const FilterBar = ({ filters, users, onChange }: FilterBarProps) => {
           }
           className="text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
         />
-        <span className="text-slate-400 text-sm">至</span>
+        <span className="text-slate-400 text-sm hidden xl:inline">至</span>
         <input
           type="date"
           value={filters.until ? filters.until.split("T")[0] : ""}
@@ -68,7 +88,10 @@ export const FilterBar = ({ filters, users, onChange }: FilterBarProps) => {
         {/* Clear */}
         {hasFilters && (
           <button
-            onClick={() => onChange({ limit: filters.limit, offset: 0 })}
+            onClick={() => {
+              setSearchText("");
+              onChange({ limit: filters.limit, offset: 0 });
+            }}
             className={cn(
               "flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 px-2 py-2 rounded-lg hover:bg-slate-100 transition-colors"
             )}

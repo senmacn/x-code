@@ -29,9 +29,13 @@ const logNodeVersionError = () => {
 };
 
 const canLoadBetterSqlite = () => {
-  const result = spawnSync(process.execPath, ["-e", 'require("better-sqlite3")'], {
-    encoding: "utf8",
-  });
+  const probeCode = [
+    'const Database = require("better-sqlite3");',
+    'const db = new Database(":memory:");',
+    "db.prepare('SELECT 1').get();",
+    "db.close();",
+  ].join("");
+  const result = spawnSync(process.execPath, ["-e", probeCode], { encoding: "utf8" });
   return {
     ok: result.status === 0,
     stderr: result.stderr || "",

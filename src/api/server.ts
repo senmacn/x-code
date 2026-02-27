@@ -21,6 +21,44 @@ export const fetchStatus = {
   nextRunAt: null as string | null,
 };
 
+const normalizeUsername = (value: string) => value.replace(/^@/, "").trim();
+const isValidUsername = (value: string) => /^[A-Za-z0-9_]{1,15}$/.test(value);
+const normalizeUsernameList = (usernames?: string[]): string[] => {
+  if (!Array.isArray(usernames)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const raw of usernames) {
+    const clean = normalizeUsername(String(raw));
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(clean);
+  }
+  return normalized;
+};
+
+const mergeStaticUsersWithStats = (
+  staticUsernames: string[],
+  stats: ReturnType<Store["getUserTweetCounts"]>
+) => {
+  const statsByUsername = new Map(
+    stats.map((u) => [normalizeUsername(u.username).toLowerCase(), u])
+  );
+
+  return staticUsernames.map((username) => {
+    const hit = statsByUsername.get(username.toLowerCase());
+    if (hit) return { ...hit, username };
+    return {
+      id: `static:${username}`,
+      username,
+      name: undefined,
+      last_seen_at: undefined,
+      count: 0,
+    };
+  });
+};
+
 // ---------- 拉取逻辑 ----------
 export const runFetch = async (): Promise<void> => {
   if (fetchStatus.isRunning) return;
@@ -29,10 +67,11 @@ export const runFetch = async (): Promise<void> => {
     const { config, secrets } = loadConfig();
     const agent = getProxyAgent(config.proxy);
     const client = createXClient(secrets, agent);
+    const staticUsernames = normalizeUsernameList(config.staticUsernames);
     const usernames =
-      config.mode === "static" && config.staticUsernames?.length
-        ? config.staticUsernames
-        : await getMyFollowings(client).catch(() => config.staticUsernames ?? []);
+      config.mode === "static" && staticUsernames.length
+        ? staticUsernames
+        : await getMyFollowings(client).catch(() => staticUsernames);
     await fetchForUsernames(client, store, usernames, config.maxPerUser, config.concurrency);
     fetchStatus.lastRunResult = "success";
     fetchStatus.lastRunMessage = `成功拉取 ${usernames.length} 个用户`;
@@ -109,12 +148,16 @@ app.get("/api/tweets/stats", (_req, res) => {
 
 // --- 用户 ---
 app.get("/api/users", (_req, res) => {
-  const users = store.getUserTweetCounts();
+  const { config } = loadConfig();
+  const users =
+    config.mode === "static"
+      ? mergeStaticUsersWithStats(
+          normalizeUsernameList(config.staticUsernames),
+          store.getUserTweetCounts()
+        )
+      : store.getUserTweetCounts();
   res.json({ users });
 });
-
-const normalizeUsername = (value: string) => value.replace(/^@/, "").trim();
-const isValidUsername = (value: string) => /^[A-Za-z0-9_]{1,15}$/.test(value);
 
 app.post("/api/users", (req, res) => {
   const { username } = req.body as { username?: string };
@@ -125,9 +168,8 @@ app.post("/api/users", (req, res) => {
   if (!isValidUsername(clean)) {
     return res.status(400).json({ error: "用户名不合法（仅支持字母、数字、下划线，长度 1-15）" });
   }
-  const list = config.staticUsernames ?? [];
-  const normalized = list.map((u) => normalizeUsername(u).toLowerCase());
-  if (normalized.includes(clean.toLowerCase())) {
+  const list = normalizeUsernameList(config.staticUsernames);
+  if (list.some((u) => u.toLowerCase() === clean.toLowerCase())) {
     return res.status(409).json({ error: "用户已存在" });
   }
   saveConfig({ ...config, staticUsernames: [...list, clean] });
@@ -139,8 +181,9 @@ app.delete("/api/users/:username", (req, res) => {
   const { config } = loadConfig();
   if (config.mode !== "static") return res.status(400).json({ error: "仅静态模式支持删除用户" });
   const clean = normalizeUsername(username).toLowerCase();
-  const list = (config.staticUsernames ?? []).filter((u) => normalizeUsername(u).toLowerCase() !== clean);
-  saveConfig({ ...config, staticUsernames: list });
+  const list = normalizeUsernameList(config.staticUsernames);
+  const nextList = list.filter((u) => u.toLowerCase() !== clean);
+  saveConfig({ ...config, staticUsernames: nextList });
   res.json({ ok: true });
 });
 
@@ -188,8 +231,17 @@ app.put("/api/config", (req, res) => {
       return res.status(400).json({ error: "staticUsernames 必须是字符串数组" });
     }
 
-    const validatedStaticUsernames = Array.isArray(next.staticUsernames)
+    const rawStaticUsernames = Array.isArray(next.staticUsernames)
       ? next.staticUsernames.map((u) => normalizeUsername(String(u))).filter(Boolean)
+      : [];
+    const invalidUsername = rawStaticUsernames.find((u) => !isValidUsername(u));
+    if (invalidUsername) {
+      return res.status(400).json({
+        error: `staticUsernames 存在不合法用户名: ${invalidUsername}`,
+      });
+    }
+    const validatedStaticUsernames = Array.isArray(next.staticUsernames)
+      ? normalizeUsernameList(rawStaticUsernames)
       : undefined;
 
     const validatedConfig: AppConfig = {

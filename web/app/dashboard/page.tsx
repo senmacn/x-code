@@ -6,6 +6,7 @@ import { StatsCards } from "@/components/dashboard/StatsCards";
 import { FetchStatus } from "@/components/dashboard/FetchStatus";
 import { TweetCard } from "@/components/tweets/TweetCard";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
   const { data, isLoading, error } = useSWR(
@@ -30,10 +31,14 @@ export default function DashboardPage() {
                 数据加载失败：{error.message}
               </div>
             )}
-            {isLoading && (
+            {isLoading && !data && (
               <div className="space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-24 bg-slate-100 rounded-xl animate-pulse" />
+                  <div
+                    key={i}
+                    className="h-24 bg-slate-100 rounded-xl animate-pulse"
+                    style={{ animationDelay: `${i * 100}ms` }}
+                  />
                 ))}
               </div>
             )}
@@ -42,7 +47,7 @@ export default function DashboardPage() {
                 暂无推文，请先触发一次拉取
               </div>
             )}
-            <div className="space-y-3">
+            <div className={cn("space-y-3 transition-opacity duration-200", isLoading && data ? "opacity-60" : "opacity-100")}>
               {data?.tweets?.map((t) => (
                 <TweetCard key={t.id} tweet={t} compact />
               ))}

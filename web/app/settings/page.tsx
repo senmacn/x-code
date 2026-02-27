@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import type { AppConfig } from "@/lib/types";
 import { Save } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 
 const CRON_PRESETS = [
   { label: "每 5 分钟", value: "*/5 * * * *" },
@@ -38,8 +39,7 @@ export default function SettingsPage() {
   const { data: remoteConfig, mutate } = useSWR("config", api.config.get);
   const [form, setForm] = useState<Partial<AppConfig>>({});
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
+  const toast = useToast();
 
   useEffect(() => {
     if (remoteConfig) setForm(remoteConfig);
@@ -50,14 +50,12 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    setError("");
     try {
       await api.config.update(form);
       mutate();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast.success("配置已保存");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "保存失败");
+      toast.error(e instanceof Error ? e.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -175,8 +173,6 @@ export default function SettingsPage() {
               <Save size={14} />
               {saving ? "保存中…" : "保存配置"}
             </button>
-            {saved && <span className="text-sm text-emerald-600">已保存</span>}
-            {error && <span className="text-sm text-rose-500">{error}</span>}
           </div>
         </div>
       </div>

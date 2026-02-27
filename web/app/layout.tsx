@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { SWRProvider } from "@/components/providers/SWRProvider";
+import { ToastProvider } from "@/components/ui/Toast";
+import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 const bodyFont = Manrope({
   subsets: ["latin"],
@@ -24,8 +28,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh">
       <body className={`${bodyFont.variable} ${displayFont.variable}`}>
-        <Sidebar />
-        <main className="relative min-h-screen pb-16 md:pb-0 md:ml-64">{children}</main>
+        <SWRProvider>
+          <ToastProvider>
+            <ConfirmProvider>
+              <Sidebar />
+              <main className="relative min-h-screen pb-16 md:pb-0 md:ml-64">
+                <ErrorBoundary>{children}</ErrorBoundary>
+              </main>
+            </ConfirmProvider>
+          </ToastProvider>
+        </SWRProvider>
       </body>
     </html>
   );

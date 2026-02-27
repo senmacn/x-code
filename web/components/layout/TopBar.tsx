@@ -5,11 +5,12 @@ import { RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import useSWR, { useSWRConfig } from "swr";
+import { useToast } from "@/components/ui/Toast";
 
 export const TopBar = ({ title }: { title: string }) => {
   const [fetching, setFetching] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const { mutate } = useSWRConfig();
+  const toast = useToast();
 
   const { data: status, error: statusError } = useSWR("status", api.status, { refreshInterval: 10000 });
 
@@ -27,13 +28,12 @@ export const TopBar = ({ title }: { title: string }) => {
           (key) => Array.isArray(key) && (key[0] === "tweets" || key[0] === "analytics/daily")
         ),
       ]);
-      setToast({ msg: res.message, ok: true });
+      toast.success(res.message);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "拉取失败";
-      setToast({ msg, ok: false });
+      toast.error(msg);
     } finally {
       setFetching(false);
-      setTimeout(() => setToast(null), 3000);
     }
   };
 
@@ -54,7 +54,7 @@ export const TopBar = ({ title }: { title: string }) => {
 
         <div className="flex items-center gap-2 md:gap-3">
           <div className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
-            <span className={cn("w-2 h-2 rounded-full", dot)} />
+            <span className={cn("w-2 h-2 rounded-full transition-colors", dot)} />
             {statusError
               ? "状态不可用"
               : status?.isRunning
@@ -72,22 +72,11 @@ export const TopBar = ({ title }: { title: string }) => {
               "bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
             )}
           >
-            <RefreshCw size={14} className={fetching ? "animate-spin" : ""} />
+            <RefreshCw size={14} className={cn("transition-transform", fetching && "animate-spin")} />
             立即拉取
           </button>
         </div>
       </div>
-
-      {toast && (
-        <div
-          className={cn(
-            "fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-sm text-white shadow-lg",
-            toast.ok ? "bg-emerald-600" : "bg-rose-600"
-          )}
-        >
-          {toast.msg}
-        </div>
-      )}
     </header>
   );
 };

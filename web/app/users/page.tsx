@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 import { fromTimestamp } from "@/lib/utils";
 import { Plus, Trash2, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 export default function UsersPage() {
   const { data, isLoading, mutate, error: usersError } = useSWR("users", api.users.list, { refreshInterval: 30000 });
@@ -15,6 +17,8 @@ export default function UsersPage() {
   const [newUsername, setNewUsername] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const handleAdd = async () => {
     const name = newUsername.replace(/^@/, "").trim();
@@ -25,6 +29,7 @@ export default function UsersPage() {
       await api.users.add(name);
       setNewUsername("");
       mutate();
+      toast.success(`已添加 @${name}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "添加失败");
     } finally {
@@ -33,12 +38,19 @@ export default function UsersPage() {
   };
 
   const handleRemove = async (username: string) => {
-    if (!confirm(`确认从监控列表移除 @${username}？`)) return;
+    const ok = await confirm({
+      title: "移除用户",
+      message: `确认从监控列表移除 @${username}？移除后将不再追踪该用户的推文。`,
+      confirmText: "移除",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await api.users.remove(username);
       mutate();
+      toast.success(`已移除 @${username}`);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "删除失败");
+      toast.error(e instanceof Error ? e.message : "删除失败");
     }
   };
 
