@@ -451,8 +451,30 @@ app.get("/api/tweets", (req, res) => {
     offset: parseInt(offset) || 0,
   };
   const tweets = store.queryTweets(opts);
+  const refsByTweetId = store.getTweetRefsByTweetIds(tweets.map((tweet) => tweet.id));
   const total = store.countTweets(opts);
-  res.json({ tweets, total });
+  const tweetsWithRefs = tweets.map((tweet) => ({
+    ...tweet,
+    references: (refsByTweetId[tweet.id] ?? []).map((ref) => ({
+      ref_tweet_id: ref.ref_tweet_id,
+      ref_type: ref.ref_type,
+      source: ref.source,
+      url: ref.url,
+      tweet: {
+        id: ref.ref_tweet_id,
+        author_id: ref.author_id,
+        username: ref.author_username,
+        name: ref.author_name,
+        text: ref.text,
+        created_at: ref.created_at,
+        lang: ref.lang,
+        media_json: ref.media_json,
+        raw_json: ref.raw_json,
+        unavailable_reason: ref.unavailable_reason,
+      },
+    })),
+  }));
+  res.json({ tweets: tweetsWithRefs, total });
 });
 
 app.get("/api/tweets/stats", (_req, res) => {

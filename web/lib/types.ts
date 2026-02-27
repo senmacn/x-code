@@ -9,6 +9,28 @@ export interface Tweet {
   raw_json?: string;
   username: string;
   user_name?: string;
+  references?: TweetReference[];
+}
+
+export interface ReferencedTweet {
+  id: string;
+  author_id?: string;
+  username?: string;
+  name?: string;
+  text?: string;
+  created_at?: string;
+  lang?: string;
+  media_json?: string;
+  raw_json?: string;
+  unavailable_reason?: string;
+}
+
+export interface TweetReference {
+  ref_tweet_id: string;
+  ref_type: "quoted" | "replied_to" | "retweeted" | "link" | string;
+  source: "referenced_tweets" | "url";
+  url?: string;
+  tweet: ReferencedTweet;
 }
 
 export interface MediaCacheConfig {

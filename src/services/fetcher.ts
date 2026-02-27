@@ -134,6 +134,48 @@ export async function fetchForUsernames(
       }
       store.saveTweets(entities);
 
+      const refSnapshots = new Map<string, {
+        id: string;
+        author_id?: string;
+        author_username?: string;
+        author_name?: string;
+        text?: string;
+        created_at?: string;
+        lang?: string;
+        media_json?: string;
+        raw_json?: string;
+        unavailable_reason?: string | null;
+      }>();
+      for (const { tweet, references } of timelineItems) {
+        store.replaceTweetRefs(
+          tweet.id,
+          references.map((ref) => ({
+            ref_tweet_id: ref.ref_tweet_id,
+            ref_type: ref.ref_type,
+            source: ref.source,
+            url: ref.url,
+          }))
+        );
+        for (const ref of references) {
+          if (!ref.snapshot) continue;
+          refSnapshots.set(ref.snapshot.id, {
+            id: ref.snapshot.id,
+            author_id: ref.snapshot.author_id,
+            author_username: ref.snapshot.username,
+            author_name: ref.snapshot.name,
+            text: ref.snapshot.text,
+            created_at: ref.snapshot.created_at,
+            lang: ref.snapshot.lang,
+            media_json: ref.snapshot.media?.length ? JSON.stringify(ref.snapshot.media) : undefined,
+            raw_json: ref.snapshot.raw_json,
+            unavailable_reason: ref.snapshot.unavailable_reason ?? null,
+          });
+        }
+      }
+      if (refSnapshots.size) {
+        store.upsertRefTweets(Array.from(refSnapshots.values()));
+      }
+
       if (appConfig) {
         for (const { tweet, media } of timelineItems) {
           if (!media.length) continue;

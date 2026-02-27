@@ -38,6 +38,43 @@ export interface TweetMediaLinkInput {
   sort_order: number;
 }
 
+export interface RefTweetUpsert {
+  id: string;
+  author_id?: string;
+  author_username?: string;
+  author_name?: string;
+  text?: string;
+  created_at?: string;
+  lang?: string;
+  media_json?: string;
+  raw_json?: string;
+  unavailable_reason?: string | null;
+}
+
+export interface TweetRefInput {
+  ref_tweet_id: string;
+  ref_type: string;
+  source: "referenced_tweets" | "url";
+  url?: string;
+}
+
+export interface TweetRefJoined {
+  tweet_id: string;
+  ref_tweet_id: string;
+  ref_type: string;
+  source: "referenced_tweets" | "url";
+  url?: string;
+  author_id?: string;
+  author_username?: string;
+  author_name?: string;
+  text?: string;
+  created_at?: string;
+  lang?: string;
+  media_json?: string;
+  raw_json?: string;
+  unavailable_reason?: string;
+}
+
 export type TaskRunStatus = "idle" | "running" | "success" | "failed";
 export type TaskAcquireReason = "running" | "retry_wait";
 
@@ -83,6 +120,9 @@ export class Store {
   private stmtInsertTweetMediaLink!: Database.Statement;
   private stmtDeleteMediaAssetsBySourceHash!: Database.Statement;
   private stmtTouchMediaAssetByRelativePath!: Database.Statement;
+  private stmtUpsertRefTweet!: Database.Statement;
+  private stmtDeleteTweetRefsByTweetId!: Database.Statement;
+  private stmtInsertTweetRef!: Database.Statement;
   private stmtUpsertUserRateLimit!: Database.Statement;
   private stmtGetUserRateLimit!: Database.Statement;
   private stmtClearUserRateLimit!: Database.Statement;
@@ -176,6 +216,32 @@ export class Store {
         finished_at INTEGER,
         updated_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS ref_tweets (
+        id TEXT PRIMARY KEY,
+        author_id TEXT,
+        author_username TEXT,
+        author_name TEXT,
+        text TEXT,
+        created_at TEXT,
+        lang TEXT,
+        media_json TEXT,
+        raw_json TEXT,
+        unavailable_reason TEXT,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS tweet_refs (
+        tweet_id TEXT NOT NULL,
+        ref_tweet_id TEXT NOT NULL,
+        ref_type TEXT NOT NULL,
+        source TEXT NOT NULL,
+        url TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (tweet_id, ref_tweet_id, source),
+        FOREIGN KEY (tweet_id) REFERENCES tweets(id) ON DELETE CASCADE
+      );
     `);
     // 索引优化：按用户与时间查询更高效
     this.db.exec(`
@@ -185,6 +251,8 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_media_assets_last_accessed ON media_assets(last_accessed_at ASC);
       CREATE INDEX IF NOT EXISTS idx_user_rate_limits_blocked_until ON user_rate_limits(blocked_until);
       CREATE INDEX IF NOT EXISTS idx_task_runs_status_next_retry ON task_runs(status, next_retry_at);
+      CREATE INDEX IF NOT EXISTS idx_tweet_refs_tweet_id ON tweet_refs(tweet_id);
+      CREATE INDEX IF NOT EXISTS idx_tweet_refs_ref_tweet_id ON tweet_refs(ref_tweet_id);
     `);
 
     // 兼容旧库结构：历史库可能没有 media_json 列
@@ -288,6 +356,56 @@ export class Store {
       UPDATE media_assets
       SET last_accessed_at = ?, updated_at = ?
       WHERE relative_path = ?
+    `);
+    this.stmtUpsertRefTweet = this.db.prepare(`
+      INSERT INTO ref_tweets (
+        id,
+        author_id,
+        author_username,
+        author_name,
+        text,
+        created_at,
+        lang,
+        media_json,
+        raw_json,
+        unavailable_reason,
+        updated_at
+      )
+      VALUES (
+        @id,
+        @author_id,
+        @author_username,
+        @author_name,
+        @text,
+        @created_at,
+        @lang,
+        @media_json,
+        @raw_json,
+        @unavailable_reason,
+        @updated_at
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        author_id = COALESCE(excluded.author_id, ref_tweets.author_id),
+        author_username = COALESCE(excluded.author_username, ref_tweets.author_username),
+        author_name = COALESCE(excluded.author_name, ref_tweets.author_name),
+        text = COALESCE(excluded.text, ref_tweets.text),
+        created_at = COALESCE(excluded.created_at, ref_tweets.created_at),
+        lang = COALESCE(excluded.lang, ref_tweets.lang),
+        media_json = COALESCE(excluded.media_json, ref_tweets.media_json),
+        raw_json = COALESCE(excluded.raw_json, ref_tweets.raw_json),
+        unavailable_reason = COALESCE(excluded.unavailable_reason, ref_tweets.unavailable_reason),
+        updated_at = excluded.updated_at
+    `);
+    this.stmtDeleteTweetRefsByTweetId = this.db.prepare(`
+      DELETE FROM tweet_refs WHERE tweet_id = ?
+    `);
+    this.stmtInsertTweetRef = this.db.prepare(`
+      INSERT INTO tweet_refs (tweet_id, ref_tweet_id, ref_type, source, url, created_at, updated_at)
+      VALUES (@tweet_id, @ref_tweet_id, @ref_type, @source, @url, @created_at, @updated_at)
+      ON CONFLICT(tweet_id, ref_tweet_id, source) DO UPDATE SET
+        ref_type = excluded.ref_type,
+        url = excluded.url,
+        updated_at = excluded.updated_at
     `);
     this.stmtUpsertUserRateLimit = this.db.prepare(`
       INSERT INTO user_rate_limits (username_key, blocked_until, last_error, updated_at)
@@ -427,6 +545,45 @@ export class Store {
     txn(tweetId, links);
   }
 
+  upsertRefTweets(refTweets: RefTweetUpsert[]) {
+    if (!refTweets.length) return;
+    const txn = this.db.transaction((items: RefTweetUpsert[]) => {
+      const now = Date.now();
+      for (const item of items) {
+        this.stmtUpsertRefTweet.run({
+          ...item,
+          unavailable_reason: item.unavailable_reason ?? null,
+          updated_at: now,
+        });
+      }
+    });
+    txn(refTweets);
+  }
+
+  replaceTweetRefs(tweetId: string, refs: TweetRefInput[]) {
+    const txn = this.db.transaction((targetTweetId: string, targetRefs: TweetRefInput[]) => {
+      this.stmtDeleteTweetRefsByTweetId.run(targetTweetId);
+      if (!targetRefs.length) return;
+      const now = Date.now();
+      const dedup = new Set<string>();
+      for (const ref of targetRefs) {
+        const key = `${ref.ref_tweet_id}:${ref.source}`;
+        if (dedup.has(key)) continue;
+        dedup.add(key);
+        this.stmtInsertTweetRef.run({
+          tweet_id: targetTweetId,
+          ref_tweet_id: ref.ref_tweet_id,
+          ref_type: ref.ref_type,
+          source: ref.source,
+          url: ref.url ?? null,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    });
+    txn(tweetId, refs);
+  }
+
   getLastTweetId(userId: string): string | undefined {
     const row = this.stmtGetLastTweetId.get(userId) as { last_tweet_id?: string } | undefined;
     return row?.last_tweet_id;
@@ -564,6 +721,118 @@ export class Store {
       FROM tweets
       WHERE id IN (${placeholders})
     `).all(...tweetIds) as { id: string; media_json?: string }[];
+  }
+
+  getTweetRefsByTweetIds(tweetIds: string[]) {
+    if (!tweetIds.length) return {} as Record<string, TweetRefJoined[]>;
+    const placeholders = tweetIds.map(() => "?").join(",");
+    const rows = this.db.prepare(`
+      SELECT
+        r.tweet_id,
+        r.ref_tweet_id,
+        r.ref_type,
+        r.source,
+        r.url,
+        rt.author_id,
+        rt.author_username,
+        rt.author_name,
+        rt.text,
+        rt.created_at,
+        rt.lang,
+        rt.media_json,
+        rt.raw_json,
+        rt.unavailable_reason
+      FROM tweet_refs r
+      LEFT JOIN ref_tweets rt ON rt.id = r.ref_tweet_id
+      WHERE r.tweet_id IN (${placeholders})
+      ORDER BY r.tweet_id ASC, r.created_at ASC
+    `).all(...tweetIds) as Array<{
+      tweet_id: string;
+      ref_tweet_id: string;
+      ref_type: string;
+      source: "referenced_tweets" | "url";
+      url?: string;
+      author_id?: string;
+      author_username?: string;
+      author_name?: string;
+      text?: string;
+      created_at?: string;
+      lang?: string;
+      media_json?: string;
+      raw_json?: string;
+      unavailable_reason?: string;
+    }>;
+
+    const missingIds = Array.from(
+      new Set(
+        rows
+          .filter((row) => !row.text && !row.raw_json)
+          .map((row) => row.ref_tweet_id)
+      )
+    );
+    const localById = new Map<string, {
+      author_id?: string;
+      author_username?: string;
+      author_name?: string;
+      text?: string;
+      created_at?: string;
+      lang?: string;
+      media_json?: string;
+      raw_json?: string;
+    }>();
+    if (missingIds.length) {
+      const localPlaceholders = missingIds.map(() => "?").join(",");
+      const localRows = this.db.prepare(`
+        SELECT
+          t.id as ref_tweet_id,
+          t.user_id as author_id,
+          u.username as author_username,
+          u.name as author_name,
+          t.text,
+          t.created_at,
+          t.lang,
+          t.media_json,
+          t.raw_json
+        FROM tweets t
+        LEFT JOIN users u ON u.id = t.user_id
+        WHERE t.id IN (${localPlaceholders})
+      `).all(...missingIds) as Array<{
+        ref_tweet_id: string;
+        author_id?: string;
+        author_username?: string;
+        author_name?: string;
+        text?: string;
+        created_at?: string;
+        lang?: string;
+        media_json?: string;
+        raw_json?: string;
+      }>;
+      for (const row of localRows) {
+        localById.set(row.ref_tweet_id, row);
+      }
+    }
+
+    const grouped: Record<string, TweetRefJoined[]> = {};
+    for (const row of rows) {
+      const fallback = localById.get(row.ref_tweet_id);
+      const item: TweetRefJoined = {
+        ...row,
+        author_id: row.author_id ?? fallback?.author_id,
+        author_username: row.author_username ?? fallback?.author_username,
+        author_name: row.author_name ?? fallback?.author_name,
+        text: row.text ?? fallback?.text,
+        created_at: row.created_at ?? fallback?.created_at,
+        lang: row.lang ?? fallback?.lang,
+        media_json: row.media_json ?? fallback?.media_json,
+        raw_json: row.raw_json ?? fallback?.raw_json,
+        unavailable_reason:
+          row.unavailable_reason ??
+          (row.text || fallback?.text ? undefined : "unavailable"),
+      };
+      if (!grouped[row.tweet_id]) grouped[row.tweet_id] = [];
+      grouped[row.tweet_id].push(item);
+    }
+    return grouped;
   }
 
   deleteMediaAssetsBySourceHashes(sourceHashes: string[]) {
