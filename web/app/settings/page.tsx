@@ -10,7 +10,11 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 
 const CRON_PRESETS = [
+  { label: "每 1 分钟", value: "*/1 * * * *" },
+  { label: "每 2 分钟", value: "*/2 * * * *" },
+  { label: "每 3 分钟", value: "*/3 * * * *" },
   { label: "每 5 分钟", value: "*/5 * * * *" },
+  { label: "每 10 分钟", value: "*/10 * * * *" },
   { label: "每 15 分钟", value: "*/15 * * * *" },
   { label: "每 30 分钟", value: "*/30 * * * *" },
   { label: "每 1 小时", value: "0 * * * *" },
@@ -36,7 +40,7 @@ const Field = ({
 );
 
 export default function SettingsPage() {
-  const { data: remoteConfig, mutate } = useSWR("config", api.config.get);
+  const { data: remoteConfig, mutate, error: configLoadError } = useSWR("config", api.config.get);
   const [form, setForm] = useState<Partial<AppConfig>>({});
   const [saving, setSaving] = useState(false);
   const toast = useToast();
@@ -116,6 +120,9 @@ export default function SettingsPage() {
                   className={inputCls}
                   placeholder="*/15 * * * *"
                 />
+                <p className="text-xs text-slate-400">
+                  高频会更容易触发 X API 限流（429），建议从每 3-5 分钟开始。
+                </p>
               </div>
             </Field>
 
@@ -156,12 +163,18 @@ export default function SettingsPage() {
               <input
                 type="text"
                 value={form.proxy ?? ""}
-                onChange={(e) => set("proxy", e.target.value || undefined)}
+                onChange={(e) => set("proxy", e.target.value)}
                 className={inputCls}
                 placeholder="http://127.0.0.1:7890"
               />
             </Field>
           </div>
+
+          {configLoadError && (
+            <div className="mt-3 surface-card border-rose-200 bg-rose-50/80 px-4 py-3 text-sm text-rose-700">
+              配置加载失败：{configLoadError.message}
+            </div>
+          )}
 
           {/* Save */}
           <div className="mt-4 flex items-center gap-3">

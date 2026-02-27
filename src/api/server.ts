@@ -72,9 +72,25 @@ export const runFetch = async (): Promise<void> => {
       config.mode === "static" && staticUsernames.length
         ? staticUsernames
         : await getMyFollowings(client).catch(() => staticUsernames);
-    await fetchForUsernames(client, store, usernames, config.maxPerUser, config.concurrency);
-    fetchStatus.lastRunResult = "success";
-    fetchStatus.lastRunMessage = `成功拉取 ${usernames.length} 个用户`;
+    const summary = await fetchForUsernames(
+      client,
+      store,
+      usernames,
+      config.maxPerUser,
+      config.concurrency
+    );
+    const isHardFailure = summary.successUsers === 0 && summary.fetchedTweets === 0;
+    fetchStatus.lastRunResult = isHardFailure ? "error" : "success";
+    fetchStatus.lastRunMessage = [
+      `用户 ${summary.totalUsers}`,
+      `成功 ${summary.successUsers}`,
+      `新增推文 ${summary.fetchedTweets}`,
+      summary.rateLimitedUsers ? `限流 ${summary.rateLimitedUsers}` : null,
+      summary.skippedRateLimitedUsers ? `冷却跳过 ${summary.skippedRateLimitedUsers}` : null,
+      summary.failedUsers ? `失败 ${summary.failedUsers}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
   } catch (e: any) {
     fetchStatus.lastRunResult = "error";
     fetchStatus.lastRunMessage = e?.message || String(e);
@@ -223,8 +239,8 @@ app.put("/api/config", (req, res) => {
       return res.status(400).json({ error: "mode 必须是 static 或 dynamic" });
     }
 
-    if (next.proxy !== undefined && typeof next.proxy !== "string") {
-      return res.status(400).json({ error: "proxy 必须是字符串" });
+    if (next.proxy !== undefined && next.proxy !== null && typeof next.proxy !== "string") {
+      return res.status(400).json({ error: "proxy 必须是字符串或 null" });
     }
 
     if (next.staticUsernames !== undefined && !Array.isArray(next.staticUsernames)) {
@@ -248,7 +264,7 @@ app.put("/api/config", (req, res) => {
       mode: next.mode,
       staticUsernames: validatedStaticUsernames,
       schedule: next.schedule,
-      proxy: typeof next.proxy === "string" && next.proxy.trim() ? next.proxy.trim() : undefined,
+      proxy: typeof next.proxy === "string" ? next.proxy.trim() : undefined,
       maxPerUser: next.maxPerUser as number,
       concurrency: next.concurrency as number,
     };
