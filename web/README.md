@@ -28,7 +28,7 @@ web/
 │   ├── api.ts                 API 客户端（封装所有 fetch 调用）
 │   ├── types.ts               共享类型定义
 │   └── utils.ts               cn() / relativeTime() / absoluteTime()
-├── next.config.js             API 代理配置（/api/* → 127.0.0.1:3001）
+├── next.config.js             API 代理配置（/api/* → 127.0.0.1:3081）
 ├── tailwind.config.ts         Tailwind 配置
 └── package.json
 ```
@@ -70,21 +70,21 @@ web/
 ## 开发
 
 ```bash
-# 单独启动前端（需后端已运行在 3001）
+# 单独启动前端（需后端已运行在 3081）
 npm run dev
 
 # 推荐：从项目根目录一键启动前后端
 npm run dev:all   # 在根目录执行
 ```
 
-前端访问地址：`http://localhost:3000`
+前端访问地址：`http://localhost:3080`
 
 ### API 代理
 
-开发环境下，`/api/*` 请求由 Next.js 自动代理到 `http://127.0.0.1:3001`，无需跨域配置。配置位于 `next.config.js`：
+开发环境下，`/api/*` 请求由 Next.js 自动代理到 `http://127.0.0.1:3081`，无需跨域配置。配置位于 `next.config.js`：
 
 ```js
-rewrites: [{ source: "/api/:path*", destination: "http://127.0.0.1:3001/api/:path*" }]
+rewrites: [{ source: "/api/:path*", destination: "http://127.0.0.1:3081/api/:path*" }]
 ```
 
 ### 数据刷新策略

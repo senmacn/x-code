@@ -4,18 +4,29 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 
 export const TopBar = ({ title }: { title: string }) => {
   const [fetching, setFetching] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const { mutate } = useSWRConfig();
 
-  const { data: status } = useSWR("status", api.status, { refreshInterval: 10000 });
+  const { data: status, error: statusError } = useSWR("status", api.status, { refreshInterval: 10000 });
 
   const handleFetch = async () => {
     setFetching(true);
     try {
       const res = await api.actions.fetchNow();
+      await Promise.all([
+        mutate("status"),
+        mutate("dashboard/latest"),
+        mutate("tweets/stats"),
+        mutate("users"),
+        mutate("analytics/users"),
+        mutate(
+          (key) => Array.isArray(key) && (key[0] === "tweets" || key[0] === "analytics/daily")
+        ),
+      ]);
       setToast({ msg: res.message, ok: true });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "拉取失败";
@@ -34,36 +45,44 @@ export const TopBar = ({ title }: { title: string }) => {
       : "bg-green-400";
 
   return (
-    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-      <h1 className="font-semibold text-gray-900 text-base">{title}</h1>
-
-      <div className="flex items-center gap-3">
-        {/* Status dot */}
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span className={cn("w-2 h-2 rounded-full", dot)} />
-          {status?.isRunning ? "拉取中…" : status?.lastRunResult === "error" ? "上次失败" : "正常"}
+    <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/80 backdrop-blur">
+      <div className="h-16 px-4 md:px-7 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">Workspace</p>
+          <h1 className="font-semibold text-slate-900 text-xl">{title}</h1>
         </div>
 
-        {/* Fetch now */}
-        <button
-          onClick={handleFetch}
-          disabled={fetching || status?.isRunning}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg font-medium transition-colors",
-            "bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          )}
-        >
-          <RefreshCw size={13} className={fetching ? "animate-spin" : ""} />
-          立即拉取
-        </button>
+        <div className="flex items-center gap-2 md:gap-3">
+          <div className="hidden sm:flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
+            <span className={cn("w-2 h-2 rounded-full", dot)} />
+            {statusError
+              ? "状态不可用"
+              : status?.isRunning
+              ? "拉取中"
+              : status?.lastRunResult === "error"
+              ? "上次失败"
+              : "系统正常"}
+          </div>
+
+          <button
+            onClick={handleFetch}
+            disabled={fetching || status?.isRunning}
+            className={cn(
+              "flex items-center gap-1.5 px-3.5 py-2 text-sm rounded-xl font-medium transition-colors shadow-sm",
+              "bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            )}
+          >
+            <RefreshCw size={14} className={fetching ? "animate-spin" : ""} />
+            立即拉取
+          </button>
+        </div>
       </div>
 
-      {/* Toast */}
       {toast && (
         <div
           className={cn(
             "fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-sm text-white shadow-lg",
-            toast.ok ? "bg-green-600" : "bg-red-600"
+            toast.ok ? "bg-emerald-600" : "bg-rose-600"
           )}
         >
           {toast.msg}

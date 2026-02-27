@@ -34,7 +34,7 @@ src/
 npm run serve              # ts-node 直接运行
 ```
 
-服务监听 `http://127.0.0.1:3001`，启动时会立即执行一次拉取并注册 cron 调度。
+服务监听 `http://127.0.0.1:3081`，启动时会立即执行一次拉取并注册 cron 调度。
 
 ---
 
@@ -176,4 +176,4 @@ CREATE INDEX idx_tweets_created      ON tweets(created_at DESC);
 | `X_ACCESS_SECRET` | OAuth 1.0a Access Secret |
 | `HTTP_PROXY` / `HTTPS_PROXY` | 代理地址（可代替 config.json 中的 proxy 字段） |
 | `LOG_LEVEL` | Pino 日志级别（默认 `info`） |
-| `API_PORT` | API 服务端口（默认 `3001`） |
+| `API_PORT` | API 服务端口（默认 `3081`） |

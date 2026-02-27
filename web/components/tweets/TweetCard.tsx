@@ -27,23 +27,23 @@ export const TweetCard = ({ tweet, compact = false }: TweetCardProps) => {
   const tweetUrl = `https://x.com/${tweet.username}/status/${tweet.id}`;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 hover:border-gray-300 transition-colors">
+    <div className="surface-card p-4 hover:border-slate-300 transition-colors">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white text-xs font-bold">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
             {tweet.username[0]?.toUpperCase()}
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-sm font-semibold text-slate-900">
               {tweet.user_name || tweet.username}
             </p>
-            <p className="text-xs text-gray-400">@{tweet.username}</p>
+            <p className="text-xs text-slate-400">@{tweet.username}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <span
-            className="text-xs text-gray-400 cursor-default"
+            className="text-xs text-slate-400 cursor-default"
             title={absoluteTime(tweet.created_at)}
           >
             {relativeTime(tweet.created_at)}
@@ -52,7 +52,7 @@ export const TweetCard = ({ tweet, compact = false }: TweetCardProps) => {
             href={tweetUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-400 hover:text-blue-500 transition-colors"
+            className="text-slate-400 hover:text-sky-500 transition-colors"
           >
             <ExternalLink size={13} />
           </a>
@@ -61,7 +61,7 @@ export const TweetCard = ({ tweet, compact = false }: TweetCardProps) => {
 
       {/* Body */}
       <p
-        className={`text-sm text-gray-800 leading-relaxed whitespace-pre-wrap ${
+        className={`text-sm text-slate-800 leading-relaxed whitespace-pre-wrap ${
           compact ? "line-clamp-3" : ""
         }`}
       >
@@ -70,7 +70,7 @@ export const TweetCard = ({ tweet, compact = false }: TweetCardProps) => {
 
       {/* Lang badge */}
       {tweet.lang && tweet.lang !== "und" && (
-        <span className="mt-2 inline-block text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+        <span className="mt-2 inline-block text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
           {tweet.lang}
         </span>
       )}

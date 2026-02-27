@@ -5,6 +5,7 @@ import fs from "fs";
 import { loadConfig, saveConfig } from "../config";
 import { getProxyAgent } from "../utils/proxy";
 import { createXClient, getMyFollowings } from "../clients/xClient";
+import type { AppConfig } from "../data/types";
 import { Store } from "../data/store";
 import { fetchForUsernames } from "../services/fetcher";
 import { logger } from "../utils/logger";
@@ -112,14 +113,21 @@ app.get("/api/users", (_req, res) => {
   res.json({ users });
 });
 
+const normalizeUsername = (value: string) => value.replace(/^@/, "").trim();
+const isValidUsername = (value: string) => /^[A-Za-z0-9_]{1,15}$/.test(value);
+
 app.post("/api/users", (req, res) => {
   const { username } = req.body as { username?: string };
   if (!username) return res.status(400).json({ error: "username 必填" });
   const { config } = loadConfig();
   if (config.mode !== "static") return res.status(400).json({ error: "仅静态模式支持手动添加用户" });
-  const clean = username.replace(/^@/, "").trim();
+  const clean = normalizeUsername(username);
+  if (!isValidUsername(clean)) {
+    return res.status(400).json({ error: "用户名不合法（仅支持字母、数字、下划线，长度 1-15）" });
+  }
   const list = config.staticUsernames ?? [];
-  if (list.map((u) => u.replace(/^@/, "")).includes(clean)) {
+  const normalized = list.map((u) => normalizeUsername(u).toLowerCase());
+  if (normalized.includes(clean.toLowerCase())) {
     return res.status(409).json({ error: "用户已存在" });
   }
   saveConfig({ ...config, staticUsernames: [...list, clean] });
@@ -130,8 +138,8 @@ app.delete("/api/users/:username", (req, res) => {
   const { username } = req.params;
   const { config } = loadConfig();
   if (config.mode !== "static") return res.status(400).json({ error: "仅静态模式支持删除用户" });
-  const clean = username.replace(/^@/, "").trim();
-  const list = (config.staticUsernames ?? []).filter((u) => u.replace(/^@/, "") !== clean);
+  const clean = normalizeUsername(username).toLowerCase();
+  const list = (config.staticUsernames ?? []).filter((u) => normalizeUsername(u).toLowerCase() !== clean);
   saveConfig({ ...config, staticUsernames: list });
   res.json({ ok: true });
 });
@@ -156,11 +164,47 @@ app.put("/api/config", (req, res) => {
   try {
     const updated = req.body as Record<string, unknown>;
     const { config } = loadConfig();
-    const next = { ...config, ...updated };
-    saveConfig(next);
+    const next = { ...config, ...updated } as Record<string, unknown>;
+
+    if (typeof next.schedule !== "string" || !cron.validate(next.schedule)) {
+      return res.status(400).json({ error: "无效的 cron 表达式" });
+    }
+    if (!Number.isInteger(next.maxPerUser) || (next.maxPerUser as number) < 1) {
+      return res.status(400).json({ error: "maxPerUser 必须是大于 0 的整数" });
+    }
+    if (!Number.isInteger(next.concurrency) || (next.concurrency as number) < 1 || (next.concurrency as number) > 10) {
+      return res.status(400).json({ error: "concurrency 必须是 1-10 的整数" });
+    }
+
+    if (next.mode !== "static" && next.mode !== "dynamic") {
+      return res.status(400).json({ error: "mode 必须是 static 或 dynamic" });
+    }
+
+    if (next.proxy !== undefined && typeof next.proxy !== "string") {
+      return res.status(400).json({ error: "proxy 必须是字符串" });
+    }
+
+    if (next.staticUsernames !== undefined && !Array.isArray(next.staticUsernames)) {
+      return res.status(400).json({ error: "staticUsernames 必须是字符串数组" });
+    }
+
+    const validatedStaticUsernames = Array.isArray(next.staticUsernames)
+      ? next.staticUsernames.map((u) => normalizeUsername(String(u))).filter(Boolean)
+      : undefined;
+
+    const validatedConfig: AppConfig = {
+      mode: next.mode,
+      staticUsernames: validatedStaticUsernames,
+      schedule: next.schedule,
+      proxy: typeof next.proxy === "string" && next.proxy.trim() ? next.proxy.trim() : undefined,
+      maxPerUser: next.maxPerUser as number,
+      concurrency: next.concurrency as number,
+    };
+
+    saveConfig(validatedConfig);
     // 若 schedule 变更，重启调度器
     if (updated.schedule && updated.schedule !== config.schedule) {
-      startCron(next.schedule);
+      startCron(validatedConfig.schedule);
     }
     res.json({ ok: true });
   } catch (e: any) {
@@ -185,7 +229,7 @@ if (fs.existsSync(webDistPath)) {
 }
 
 // ---------- 启动 ----------
-const PORT = parseInt(process.env.API_PORT || "3001");
+const PORT = parseInt(process.env.API_PORT || "3081");
 
 const { config } = loadConfig();
 startCron(config.schedule);

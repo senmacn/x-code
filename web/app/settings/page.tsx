@@ -25,12 +25,12 @@ const Field = ({
   hint?: string;
   children: React.ReactNode;
 }) => (
-  <div className="flex items-start justify-between py-4 border-b border-gray-100 last:border-0">
+  <div className="flex flex-col md:flex-row md:items-start md:justify-between py-4 border-b border-slate-100 last:border-0 gap-2">
     <div className="w-48">
-      <p className="text-sm font-medium text-gray-800">{label}</p>
-      {hint && <p className="text-xs text-gray-400 mt-0.5">{hint}</p>}
+      <p className="text-sm font-medium text-slate-800">{label}</p>
+      {hint && <p className="text-xs text-slate-400 mt-0.5">{hint}</p>}
     </div>
-    <div className="flex-1 max-w-sm">{children}</div>
+    <div className="flex-1 max-w-md">{children}</div>
   </div>
 );
 
@@ -64,14 +64,14 @@ export default function SettingsPage() {
   };
 
   const inputCls =
-    "w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
+    "w-full text-sm border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent";
 
   return (
     <>
       <TopBar title="设置" />
-      <div className="flex-1 p-6">
-        <div className="max-w-xl">
-          <div className="bg-white border border-gray-200 rounded-xl px-5 divide-y divide-gray-100">
+      <div className="flex-1 p-4 md:p-7">
+        <div className="max-w-3xl mx-auto">
+          <div className="surface-card px-5 divide-y divide-slate-100">
             {/* Mode */}
             <Field label="工作模式" hint="静态：手动维护用户名；动态：自动同步关注列表">
               <div className="flex gap-3">
@@ -80,10 +80,10 @@ export default function SettingsPage() {
                     key={m}
                     onClick={() => set("mode", m)}
                     className={cn(
-                      "flex-1 py-2 text-sm rounded-lg border transition-colors",
+                      "flex-1 py-2 text-sm rounded-xl border transition-colors",
                       form.mode === m
-                        ? "bg-blue-600 text-white border-blue-600"
-                        : "text-gray-600 border-gray-200 hover:bg-gray-50"
+                        ? "bg-sky-600 text-white border-sky-600"
+                        : "text-slate-600 border-slate-200 hover:bg-slate-50"
                     )}
                   >
                     {m === "static" ? "静态" : "动态"}
@@ -103,8 +103,8 @@ export default function SettingsPage() {
                       className={cn(
                         "px-2.5 py-1 text-xs rounded-full border transition-colors",
                         form.schedule === p.value
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "text-gray-500 border-gray-200 hover:bg-gray-100"
+                          ? "bg-sky-600 text-white border-sky-600"
+                          : "text-slate-500 border-slate-200 hover:bg-slate-100"
                       )}
                     >
                       {p.label}
@@ -133,7 +133,7 @@ export default function SettingsPage() {
                   onChange={(e) => set("maxPerUser", parseInt(e.target.value))}
                   className="flex-1"
                 />
-                <span className="text-sm text-gray-700 w-8 text-right">{form.maxPerUser}</span>
+                <span className="text-sm text-slate-700 w-8 text-right">{form.maxPerUser ?? 20}</span>
               </div>
             </Field>
 
@@ -149,7 +149,7 @@ export default function SettingsPage() {
                   onChange={(e) => set("concurrency", parseInt(e.target.value))}
                   className="flex-1"
                 />
-                <span className="text-sm text-gray-700 w-8 text-right">{form.concurrency}</span>
+                <span className="text-sm text-slate-700 w-8 text-right">{form.concurrency ?? 3}</span>
               </div>
             </Field>
 
@@ -169,14 +169,14 @@ export default function SettingsPage() {
           <div className="mt-4 flex items-center gap-3">
             <button
               onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              disabled={saving || !remoteConfig}
+              className="flex items-center gap-2 px-5 py-2 bg-sky-600 text-white text-sm font-medium rounded-xl hover:bg-sky-700 disabled:opacity-50 transition-colors"
             >
               <Save size={14} />
               {saving ? "保存中…" : "保存配置"}
             </button>
-            {saved && <span className="text-sm text-green-600">已保存</span>}
-            {error && <span className="text-sm text-red-500">{error}</span>}
+            {saved && <span className="text-sm text-emerald-600">已保存</span>}
+            {error && <span className="text-sm text-rose-500">{error}</span>}
           </div>
         </div>
       </div>

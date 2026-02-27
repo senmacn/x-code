@@ -12,12 +12,12 @@ export const FetchStatus = () => {
 
   const resultColor =
     status.isRunning
-      ? "text-yellow-600 bg-yellow-50 border-yellow-200"
+      ? "text-amber-700 bg-amber-50 border-amber-200"
       : status.lastRunResult === "error"
-      ? "text-red-600 bg-red-50 border-red-200"
+      ? "text-rose-700 bg-rose-50 border-rose-200"
       : status.lastRunResult === "success"
-      ? "text-green-600 bg-green-50 border-green-200"
-      : "text-gray-500 bg-gray-50 border-gray-200";
+      ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+      : "text-slate-500 bg-slate-50 border-slate-200";
 
   const resultLabel = status.isRunning
     ? "拉取中…"
@@ -28,16 +28,16 @@ export const FetchStatus = () => {
     : "空闲";
 
   return (
-    <div className={cn("flex items-center justify-between px-4 py-3 rounded-lg border text-sm", resultColor)}>
-      <div className="flex items-center gap-2">
+    <div className={cn("surface-card-strong flex flex-col gap-3 md:flex-row md:items-center md:justify-between px-4 py-3 text-sm", resultColor)}>
+      <div className="flex items-center gap-2 min-w-0">
         <span
           className={cn(
             "w-2 h-2 rounded-full",
             status.isRunning
-              ? "bg-yellow-400 animate-pulse"
+              ? "bg-amber-400 animate-pulse"
               : status.lastRunResult === "error"
-              ? "bg-red-400"
-              : "bg-green-400"
+              ? "bg-rose-400"
+              : "bg-emerald-400"
           )}
         />
         <span className="font-medium">{resultLabel}</span>
@@ -45,7 +45,7 @@ export const FetchStatus = () => {
           <span className="opacity-70 truncate max-w-xs">{status.lastRunMessage}</span>
         )}
       </div>
-      <div className="flex items-center gap-4 text-xs opacity-70">
+      <div className="flex flex-wrap items-center gap-3 text-xs opacity-80">
         <span>调度: {status.schedule}</span>
         <span>上次: {absoluteTime(status.lastRunAt ?? undefined)}</span>
       </div>

@@ -4,19 +4,48 @@
 
 @layer base {
   :root {
-    --bg: #f9fafb;
-    --surface: #ffffff;
-    --border: #e5e7eb;
-    --text: #111827;
-    --text-muted: #6b7280;
+    --bg: #f3f7ff;
+    --bg-muted: #e7eefb;
+    --surface: rgba(255, 255, 255, 0.88);
+    --surface-strong: rgba(255, 255, 255, 0.96);
+    --border: rgba(15, 23, 42, 0.1);
+    --text: #0f172a;
+    --text-muted: #64748b;
+  }
+
+  html,
+  body {
+    min-height: 100%;
   }
 
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply antialiased text-slate-900;
+    font-family: var(--font-body), "PingFang SC", "Noto Sans SC", sans-serif;
+    background:
+      radial-gradient(circle at 8% -10%, #cde1ff 0%, rgba(205, 225, 255, 0) 42%),
+      radial-gradient(circle at 92% 0%, #f6d7a8 0%, rgba(246, 215, 168, 0) 35%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg-muted) 100%);
   }
 
   * {
-    @apply border-gray-200;
+    border-color: var(--border);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display), var(--font-body), "PingFang SC", sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  .surface-card {
+    @apply rounded-2xl border shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur bg-white/85;
+  }
+
+  .surface-card-strong {
+    @apply rounded-2xl border shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur bg-white/95;
   }
 }
 
