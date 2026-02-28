@@ -45,6 +45,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const toast = useToast();
+  const priorityUsers = form.priorityUsernames ?? remoteConfig?.priorityUsernames ?? [];
 
   useEffect(() => {
     if (remoteConfig) setForm(remoteConfig);
@@ -151,22 +152,12 @@ export default function SettingsPage() {
             </Field>
 
             {/* Priority users */}
-            <Field label="重点用户" hint="这些用户可启用本地媒体持久化；逗号分隔">
-              <input
-                type="text"
-                value={(form.priorityUsernames ?? []).join(",")}
-                onChange={(e) =>
-                  set(
-                    "priorityUsernames",
-                    e.target.value
-                      .split(",")
-                      .map((v) => v.trim())
-                      .filter(Boolean)
-                  )
-                }
-                className={inputCls}
-                placeholder="jack,elonmusk"
-              />
+            <Field label="重点用户" hint="已迁移到「用户管理」页">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5">
+                <p className="text-sm text-amber-800">
+                  请到「用户管理」页点击用户右侧星标进行维护（当前 {priorityUsers.length} 个）。
+                </p>
+              </div>
             </Field>
 
             {/* maxPerUser */}
@@ -239,41 +230,59 @@ export default function SettingsPage() {
                   />
                   缓存视频原文件（流量更高）
                 </label>
-                <input
-                  type="text"
-                  value={form.mediaCache?.rootDir ?? "media-cache"}
-                  onChange={(e) => setMediaCache("rootDir", e.target.value)}
-                  className={inputCls}
-                  placeholder="media-cache"
-                />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <input
-                    type="number"
-                    min={100}
-                    value={form.mediaCache?.maxDiskUsage ?? 2048}
-                    onChange={(e) =>
-                      setMediaCache("maxDiskUsage", Math.max(100, parseInt(e.target.value || "2048", 10)))
-                    }
-                    className={inputCls}
-                    placeholder="总容量上限(MB)"
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    value={form.mediaCache?.ttlDays ?? 30}
-                    onChange={(e) =>
-                      setMediaCache("ttlDays", Math.max(1, parseInt(e.target.value || "30", 10)))
-                    }
-                    className={inputCls}
-                    placeholder="过期天数"
-                  />
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-600">缓存目录</label>
                   <input
                     type="text"
-                    value={form.mediaCache?.cleanupCron ?? "0 * * * *"}
-                    onChange={(e) => setMediaCache("cleanupCron", e.target.value)}
+                    value={form.mediaCache?.rootDir ?? "media-cache"}
+                    onChange={(e) => setMediaCache("rootDir", e.target.value)}
                     className={inputCls}
-                    placeholder="清理 Cron"
+                    placeholder="media-cache"
                   />
+                  <p className="text-xs text-slate-400">
+                    支持相对路径（相对项目根目录）或绝对路径，建议使用固定目录便于治理。
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-600">总容量上限 (MB)</label>
+                    <input
+                      type="number"
+                      min={100}
+                      value={form.mediaCache?.maxDiskUsage ?? 2048}
+                      onChange={(e) =>
+                        setMediaCache("maxDiskUsage", Math.max(100, parseInt(e.target.value || "2048", 10)))
+                      }
+                      className={inputCls}
+                      placeholder="2048"
+                    />
+                    <p className="text-xs text-slate-400">超过阈值后会按最近访问时间优先清理。</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-600">过期天数 (TTL)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={form.mediaCache?.ttlDays ?? 30}
+                      onChange={(e) =>
+                        setMediaCache("ttlDays", Math.max(1, parseInt(e.target.value || "30", 10)))
+                      }
+                      className={inputCls}
+                      placeholder="30"
+                    />
+                    <p className="text-xs text-slate-400">媒体超过该天数未访问会被自动淘汰。</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-600">清理计划 (Cron)</label>
+                    <input
+                      type="text"
+                      value={form.mediaCache?.cleanupCron ?? "0 * * * *"}
+                      onChange={(e) => setMediaCache("cleanupCron", e.target.value)}
+                      className={inputCls}
+                      placeholder="0 * * * *"
+                    />
+                    <p className="text-xs text-slate-400">定时执行缓存清理任务，建议至少每小时一次。</p>
+                  </div>
                 </div>
               </div>
             </Field>

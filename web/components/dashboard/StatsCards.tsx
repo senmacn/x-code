@@ -8,7 +8,11 @@ import { absoluteTime } from "@/lib/utils";
 export const StatsCards = () => {
   const { data: stats } = useSWR("tweets/stats", api.tweets.stats, { refreshInterval: 30000 });
   const { data: status } = useSWR("status", api.status, { refreshInterval: 10000 });
-  const { data: usersData } = useSWR("users", api.users.list, { refreshInterval: 60000 });
+  const { data: usersData } = useSWR(
+    "users/active-only",
+    () => api.users.list({ includeHistorical: false }),
+    { refreshInterval: 60000 }
+  );
 
   const cards = [
     {

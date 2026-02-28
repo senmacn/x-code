@@ -36,10 +36,14 @@ const getPageRange = (current: number, total: number, maxVisible = 7): (number |
 };
 
 export default function TweetsPage() {
-  const [filters, setFilters] = useState<TweetFilters>({ limit: PAGE_SIZE, offset: 0 });
+  const [filters, setFilters] = useState<TweetFilters>({
+    limit: PAGE_SIZE,
+    offset: 0,
+    includeHistorical: 0,
+  });
   const listRef = useRef<HTMLDivElement>(null);
 
-  const { data: usersData } = useSWR("users", api.users.list);
+  const { data: usersData } = useSWR("users", () => api.users.list());
   const { data, isLoading, error } = useSWR(
     ["tweets", filters],
     () => api.tweets.list(filters),
@@ -63,18 +67,23 @@ export default function TweetsPage() {
       <TopBar title="推文管理" />
       <div className="flex-1 p-4 md:p-7" ref={listRef}>
         <div className="max-w-6xl mx-auto space-y-4">
-          <FilterBar
-            filters={filters}
-            users={usersData?.users ?? []}
-            onChange={(f) => setFilters({ ...f, limit: PAGE_SIZE })}
-          />
-
-          {/* Count */}
-          <div className="flex items-center justify-between text-sm text-slate-500 px-1">
-            <span>共 {total.toLocaleString()} 条推文</span>
-            <span>
-              第 {currentPage} / {totalPages} 页
-            </span>
+          <div className="surface-card p-4">
+            <div className="mb-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">筛选条件</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  口径：{(filters.includeHistorical ?? 0) === 1 ? "全历史（含已移除用户）" : "仅当前监控中用户"}
+                </p>
+              </div>
+              <div className="text-xs text-slate-500">
+                共 {total.toLocaleString()} 条 · 第 {currentPage}/{totalPages} 页
+              </div>
+            </div>
+            <FilterBar
+              filters={filters}
+              users={usersData?.users ?? []}
+              onChange={(f) => setFilters({ ...f, limit: PAGE_SIZE })}
+            />
           </div>
 
           {error && (
@@ -83,76 +92,92 @@ export default function TweetsPage() {
             </div>
           )}
 
-          {/* List */}
-          {isLoading && !data && (
-            <div className="space-y-3">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-24 bg-slate-100 rounded-xl animate-pulse" />
+          <div className="surface-card overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-700">推文列表</span>
+              <span className="text-xs text-slate-500">
+                {(filters.includeHistorical ?? 0) === 1 ? "全历史口径" : "当前监控口径"}
+              </span>
+            </div>
+
+            {isLoading && !data && (
+              <div className="space-y-3 p-4">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="h-24 bg-slate-100 rounded-xl animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {!isLoading && !data?.tweets?.length && (
+              <div className="text-center py-16 text-slate-400 text-sm">没有符合条件的推文</div>
+            )}
+
+            <div
+              className={cn(
+                "p-4 space-y-3 transition-opacity duration-200",
+                isLoading && data ? "opacity-60" : "opacity-100"
+              )}
+            >
+              {data?.tweets?.map((t) => (
+                <TweetCard key={t.id} tweet={t} timeDisplayMode="absolute" />
               ))}
             </div>
-          )}
 
-          {!isLoading && !data?.tweets?.length && (
-            <div className="surface-card text-center py-16 text-slate-400 text-sm">没有符合条件的推文</div>
-          )}
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-center gap-1.5">
+                <button
+                  onClick={() => goPage(currentPage - 1)}
+                  disabled={currentPage <= 1}
+                  className={cn(
+                    "p-2 rounded-lg border transition-colors",
+                    currentPage <= 1
+                      ? "text-slate-300 border-slate-200 cursor-not-allowed"
+                      : "text-slate-600 border-slate-200 hover:bg-slate-100"
+                  )}
+                  title="上一页"
+                >
+                  <ChevronLeft size={16} />
+                </button>
 
-          <div className={cn("space-y-3 transition-opacity duration-200", isLoading && data ? "opacity-60" : "opacity-100")}>
-            {data?.tweets?.map((t) => (
-              <TweetCard key={t.id} tweet={t} timeDisplayMode="absolute" />
-            ))}
+                {pageRange.map((page, i) =>
+                  page === "..." ? (
+                    <span key={`ellipsis-${i}`} className="w-8 h-8 flex items-center justify-center text-sm text-slate-400">
+                      ...
+                    </span>
+                  ) : (
+                    <button
+                      key={page}
+                      onClick={() => goPage(page)}
+                      className={cn(
+                        "w-8 h-8 text-sm rounded-lg border transition-colors",
+                        page === currentPage
+                          ? "bg-sky-600 text-white border-sky-600"
+                          : "text-slate-600 border-slate-200 hover:bg-slate-100"
+                      )}
+                      title={`跳转到第 ${page} 页`}
+                    >
+                      {page}
+                    </button>
+                  )
+                )}
+
+                <button
+                  onClick={() => goPage(currentPage + 1)}
+                  disabled={currentPage >= totalPages}
+                  className={cn(
+                    "p-2 rounded-lg border transition-colors",
+                    currentPage >= totalPages
+                      ? "text-slate-300 border-slate-200 cursor-not-allowed"
+                      : "text-slate-600 border-slate-200 hover:bg-slate-100"
+                  )}
+                  title="下一页"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
           </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-1.5 pt-4">
-              <button
-                onClick={() => goPage(currentPage - 1)}
-                disabled={currentPage <= 1}
-                className={cn(
-                  "p-2 rounded-lg border transition-colors",
-                  currentPage <= 1
-                    ? "text-slate-300 border-slate-200 cursor-not-allowed"
-                    : "text-slate-600 border-slate-200 hover:bg-slate-100"
-                )}
-              >
-                <ChevronLeft size={16} />
-              </button>
-
-              {pageRange.map((page, i) =>
-                page === "..." ? (
-                  <span key={`ellipsis-${i}`} className="w-8 h-8 flex items-center justify-center text-sm text-slate-400">
-                    ...
-                  </span>
-                ) : (
-                  <button
-                    key={page}
-                    onClick={() => goPage(page)}
-                    className={cn(
-                      "w-8 h-8 text-sm rounded-lg border transition-colors",
-                      page === currentPage
-                        ? "bg-sky-600 text-white border-sky-600"
-                        : "text-slate-600 border-slate-200 hover:bg-slate-100"
-                    )}
-                  >
-                    {page}
-                  </button>
-                )
-              )}
-
-              <button
-                onClick={() => goPage(currentPage + 1)}
-                disabled={currentPage >= totalPages}
-                className={cn(
-                  "p-2 rounded-lg border transition-colors",
-                  currentPage >= totalPages
-                    ? "text-slate-300 border-slate-200 cursor-not-allowed"
-                    : "text-slate-600 border-slate-200 hover:bg-slate-100"
-                )}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </>

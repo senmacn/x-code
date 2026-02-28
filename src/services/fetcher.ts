@@ -105,14 +105,21 @@ export async function fetchForUsernames(
 
     try {
       const user = await getUserByUsername(client, uname);
+      const fetchedAt = Date.now();
       const userEntity: UserEntity = {
         id: user.id,
         username: user.username,
         name: user.name,
         avatar_url: (user as { profile_image_url?: string }).profile_image_url,
-        last_seen_at: Date.now(),
+        last_seen_at: fetchedAt,
+        monitor_status: "active",
       };
       store.upsertUser(userEntity);
+      store.setUserMonitorStatusById(user.id, "active", {
+        at: fetchedAt,
+        source: appConfig?.mode ?? "static",
+        reason: "fetch",
+      });
 
       const sinceId = store.getLastTweetId(user.id);
       const timelineItems = await getUserTweetsSince(client, user.id, sinceId, maxPerUser);
@@ -136,6 +143,9 @@ export async function fetchForUsernames(
           media_json: media.length ? JSON.stringify(media) : undefined,
           entities_json: tweet.entities ? JSON.stringify(tweet.entities) : undefined,
           raw_json: JSON.stringify(tweet),
+          ingest_source: "direct",
+          captured_at: fetchedAt,
+          monitor_status_at_capture: "active_target",
         });
       }
       store.saveTweets(entities);
@@ -219,6 +229,11 @@ export async function fetchForUsernames(
         summary.rateLimitedUsers += 1;
         const resetAt = extractRateLimitResetAt(err) ?? Date.now() + DEFAULT_RATE_LIMIT_BACKOFF_MS;
         store.setUserRateLimit(unameKey, resetAt, msg);
+        store.setUserMonitorStatusByUsername(uname, "blocked_or_not_found", {
+          at: Date.now(),
+          source: appConfig?.mode ?? "static",
+          reason: "rate_limit",
+        });
         logger.warn(
           { username: uname, status, retryAt: new Date(resetAt).toISOString(), error: msg },
           "用户触发限流，已进入冷却期"
@@ -226,6 +241,14 @@ export async function fetchForUsernames(
         processedUsers += 1;
         emitProgress(uname);
         return;
+      }
+
+      if (status === 404 || status === 401 || status === 403) {
+        store.setUserMonitorStatusByUsername(uname, "blocked_or_not_found", {
+          at: Date.now(),
+          source: appConfig?.mode ?? "static",
+          reason: `http_${status}`,
+        });
       }
 
       summary.failedUsers += 1;

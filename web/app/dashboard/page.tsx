@@ -11,9 +11,10 @@ import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
   const [showAbsoluteTime, setShowAbsoluteTime] = useState(false);
+  const [includeHistorical, setIncludeHistorical] = useState(false);
   const { data, isLoading, error } = useSWR(
-    "dashboard/latest",
-    () => api.tweets.list({ limit: 20 }),
+    ["dashboard/latest", includeHistorical],
+    () => api.tweets.list({ limit: 20, includeHistorical: includeHistorical ? 1 : 0 }),
     { refreshInterval: 30800 }
   );
 
@@ -29,9 +30,19 @@ export default function DashboardPage() {
           <section>
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2 className="text-sm md:text-base font-semibold text-slate-700">最新动态</h2>
-              <span className="text-xs text-slate-400">
-                时间显示: {showAbsoluteTime ? "详细时间" : "相对时间"}
-              </span>
+              <div className="flex items-center gap-3">
+                <label className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={includeHistorical}
+                    onChange={(e) => setIncludeHistorical(e.target.checked)}
+                  />
+                  包含历史已移除用户
+                </label>
+                <span className="text-xs text-slate-400">
+                  时间显示: {showAbsoluteTime ? "详细时间" : "相对时间"}
+                </span>
+              </div>
             </div>
             {error && (
               <div className="surface-card border-rose-200 bg-rose-50/80 text-rose-700 px-4 py-3 text-sm mb-3">

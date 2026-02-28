@@ -1,4 +1,11 @@
 export type Mode = "static" | "dynamic";
+export type MonitorStatus = "active" | "paused" | "removed" | "blocked_or_not_found";
+export type TweetIngestSource = "direct" | "backfill" | "reference";
+export type TweetMonitorStatusAtCapture =
+  | "active_target"
+  | "inactive_target"
+  | "non_target_reference"
+  | "unknown";
 
 export interface MediaCacheConfig {
   enabled: boolean;
@@ -36,6 +43,9 @@ export interface UserEntity {
   name?: string;
   avatar_url?: string;
   last_seen_at?: number;
+  monitor_status?: MonitorStatus;
+  monitoring_started_at?: number;
+  monitoring_ended_at?: number;
 }
 
 export interface TweetEntity {
@@ -47,4 +57,7 @@ export interface TweetEntity {
   media_json?: string;
   entities_json?: string;
   raw_json?: string;
+  ingest_source?: TweetIngestSource;
+  captured_at?: number;
+  monitor_status_at_capture?: TweetMonitorStatusAtCapture;
 }

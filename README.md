@@ -6,6 +6,8 @@
 - 任务状态持久化与失败重试（抓取/回填/清理）
 - 引用推文结构化展示（不再只显示一串 X 链接）
 - 用户头像自动同步与回填（`users.avatar_url`）
+- 监控用户状态管理（active/paused/removed/blocked）与监控区间记录
+- 推文采集状态标记（采集来源、采集时监控状态）
 - 动态时间显示一键切换（相对时间 / 详细时间）
 - 媒体大图弹窗预览（按需再跳转 X 原帖）
 
@@ -137,6 +139,9 @@ npm run show -- --user jack --limit 20   # 终端查看推文
 - 任务状态持久化：`task_runs`（进度、重试、heartbeat）
 - 用户限流冷却持久化：`user_rate_limits`
 - 用户头像持久化：`users.avatar_url`
+- 用户监控状态：`users.monitor_status` / `users.monitoring_started_at` / `users.monitoring_ended_at`
+- 用户监控区间：`user_monitor_periods`
+- 推文采集状态：`tweets.ingest_source` / `tweets.captured_at` / `tweets.monitor_status_at_capture`
 
 ---
 
@@ -146,6 +151,10 @@ npm run show -- --user jack --limit 20   # 终端查看推文
 - `/api/status` 会返回抓取/回填/清理状态以及 `taskRuns` 任务状态
 - 推文中的 X 链接会在前端优先展示为“引用卡片”（可用/不可用两种状态）
 - 静态模式下新增用户时，会立即尝试拉取用户资料并写入头像 URL
+- 静态模式下“停止监控”不会删除历史推文，仅移出当前抓取目标并将用户状态标记为 `removed`
+- 推文列表默认只展示当前监控中用户，可在页面勾选“包含历史已移除用户”切换到全历史口径
+- 用户管理页面支持按状态/重点/关键词筛选，列表内直接进行“停止/继续监控”和重点用户切换
+- 推文管理页面已按“筛选区-结果区-分页区”分层，降低信息噪声并提升浏览效率
 - 仪表盘中的推文时间可点击统一切换展示格式（相对时间/详细时间）
 - 推文媒体点击后先在弹窗中预览，弹窗内可选择跳转至 X 原帖
 - `config.json` 不进入 git 追踪，适合存放本地个性化配置；`config.default.json` 作为模板随仓库保存

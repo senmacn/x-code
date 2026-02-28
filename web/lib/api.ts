@@ -2,6 +2,7 @@ import type {
   AppConfig,
   DailyStat,
   FetchStatus,
+  MonitorStatus,
   TweetFilters,
   TweetsResponse,
   TweetStats,
@@ -95,10 +96,20 @@ export const api = {
   },
 
   users: {
-    list: () => get<{ users: User[] }>("/users"),
+    list: (opts?: { includeHistorical?: boolean }) =>
+      get<{ users: User[] }>(
+        `/users${buildQuery({
+          includeHistorical: opts?.includeHistorical === undefined ? undefined : opts.includeHistorical ? 1 : 0,
+        })}`
+      ),
     add: (username: string) =>
       post<{ ok: boolean; avatarFetched?: boolean; avatarUrl?: string }>("/users", { username }),
     remove: (username: string) => del<{ ok: boolean }>(`/users/${encodeURIComponent(username)}`),
+    setStatus: (username: string, status: MonitorStatus) =>
+      post<{ ok: boolean; status: MonitorStatus; targeting: boolean }>(
+        `/users/${encodeURIComponent(username)}/status`,
+        { status }
+      ),
   },
 
   analytics: {

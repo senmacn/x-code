@@ -5,7 +5,7 @@ import fs from "fs";
 import { loadConfig, saveConfig } from "../config";
 import { getProxyAgent } from "../utils/proxy";
 import { createXClient, getMyFollowings, getUserByUsername } from "../clients/xClient";
-import type { AppConfig } from "../data/types";
+import type { AppConfig, MonitorStatus } from "../data/types";
 import { Store } from "../data/store";
 import { fetchForUsernames } from "../services/fetcher";
 import {
@@ -44,6 +44,12 @@ const TASK_KEYS = {
 } as const;
 const TASK_STALE_AFTER_MS = 10 * 60 * 1000;
 const TASK_RETRY_DELAY_MS = 60 * 1000;
+const MONITOR_STATUS_VALUES: MonitorStatus[] = [
+  "active",
+  "paused",
+  "removed",
+  "blocked_or_not_found",
+];
 
 const normalizeUsername = (value: string) => value.replace(/^@/, "").trim();
 const isValidUsername = (value: string) => /^[A-Za-z0-9_]{1,15}$/.test(value);
@@ -66,21 +72,70 @@ const mergeStaticUsersWithStats = (
   staticUsernames: string[],
   stats: ReturnType<Store["getUserTweetCounts"]>
 ) => {
+  const staticSet = new Set(staticUsernames.map((u) => u.toLowerCase()));
   const statsByUsername = new Map(
     stats.map((u) => [normalizeUsername(u.username).toLowerCase(), u])
   );
+  const merged = stats.map((item) => ({
+    ...item,
+    current_target: staticSet.has(item.username.toLowerCase()),
+  }));
 
-  return staticUsernames.map((username) => {
+  for (const username of staticUsernames) {
     const hit = statsByUsername.get(username.toLowerCase());
-    if (hit) return { ...hit, username };
-    return {
+    if (hit) continue;
+    merged.push({
       id: `static:${username}`,
       username,
       name: undefined,
+      avatar_url: undefined,
       last_seen_at: undefined,
+      monitor_status: "active",
+      monitoring_started_at: undefined,
+      monitoring_ended_at: undefined,
       count: 0,
-    };
+      current_target: true,
+    });
+  }
+  return merged.sort((a, b) => {
+    if ((a.current_target ? 1 : 0) !== (b.current_target ? 1 : 0)) {
+      return a.current_target ? -1 : 1;
+    }
+    if ((a.count ?? 0) !== (b.count ?? 0)) return (b.count ?? 0) - (a.count ?? 0);
+    return a.username.localeCompare(b.username);
   });
+};
+
+const applyUserMonitorStatus = (
+  username: string,
+  status: MonitorStatus,
+  source: "static" | "dynamic",
+  reason: string
+) => {
+  store.setUserMonitorStatusByUsername(username, status, {
+    at: Date.now(),
+    source,
+    reason,
+  });
+};
+
+const syncStaticUserStatuses = (
+  prevStaticUsernames: string[] | undefined,
+  nextStaticUsernames: string[] | undefined,
+  source: "static" | "dynamic" = "static"
+) => {
+  const before = new Set(normalizeUsernameList(prevStaticUsernames).map((u) => u.toLowerCase()));
+  const after = new Set(normalizeUsernameList(nextStaticUsernames).map((u) => u.toLowerCase()));
+  for (const username of before) {
+    if (!after.has(username)) {
+      applyUserMonitorStatus(username, "removed", source, "config_removed");
+    }
+  }
+  for (const username of after) {
+    if (!before.has(username)) {
+      applyUserMonitorStatus(username, "active", source, "config_added");
+    }
+  }
 };
 
 const ensureMediaCacheDir = (config: AppConfig) => {
@@ -150,6 +205,11 @@ export const runFetch = async (): Promise<void> => {
       config.mode === "static" && staticUsernames.length
         ? staticUsernames
         : await getMyFollowings(client).catch(() => staticUsernames);
+    if (config.mode === "static") {
+      for (const username of usernames) {
+        applyUserMonitorStatus(username, "active", "static", "scheduled_fetch_target");
+      }
+    }
     ensureMediaCacheDir(config);
     const summary = await fetchForUsernames(
       client,
@@ -440,13 +500,30 @@ app.get("/api/status", (_req, res) => {
 
 // --- 推文 ---
 app.get("/api/tweets", (req, res) => {
-  const { username, since, until, contains, lang, limit = "50", offset = "0" } = req.query as Record<string, string>;
+  const { config } = loadConfig();
+  const prioritySet = new Set(
+    normalizeUsernameList(config.priorityUsernames).map((u) => u.toLowerCase())
+  );
+  const {
+    username,
+    since,
+    until,
+    contains,
+    lang,
+    limit = "50",
+    offset = "0",
+    includeHistorical = "0",
+  } = req.query as Record<string, string>;
   const opts = {
     username: username || undefined,
     since: since || undefined,
     until: until || undefined,
     contains: contains || undefined,
     lang: lang || undefined,
+    includeHistorical:
+      includeHistorical === "1" ||
+      includeHistorical === "true" ||
+      includeHistorical === "yes",
     limit: Math.min(parseInt(limit) || 50, 200),
     offset: parseInt(offset) || 0,
   };
@@ -455,6 +532,7 @@ app.get("/api/tweets", (req, res) => {
   const total = store.countTweets(opts);
   const tweetsWithRefs = tweets.map((tweet) => ({
     ...tweet,
+    user_is_priority: prioritySet.has(tweet.username.toLowerCase()),
     references: (refsByTweetId[tweet.id] ?? []).map((ref) => ({
       ref_tweet_id: ref.ref_tweet_id,
       ref_type: ref.ref_type,
@@ -485,15 +563,21 @@ app.get("/api/tweets/stats", (_req, res) => {
 });
 
 // --- 用户 ---
-app.get("/api/users", (_req, res) => {
+app.get("/api/users", (req, res) => {
   const { config } = loadConfig();
+  const includeHistorical =
+    String((req.query as Record<string, string>).includeHistorical ?? "1") !== "0";
+  const allStats = store.getUserTweetCounts();
+  const stats = includeHistorical
+    ? allStats
+    : allStats.filter((item) => (item.monitor_status ?? "active") === "active");
   const users =
     config.mode === "static"
       ? mergeStaticUsersWithStats(
           normalizeUsernameList(config.staticUsernames),
-          store.getUserTweetCounts()
+          stats
         )
-      : store.getUserTweetCounts();
+      : stats;
   res.json({ users });
 });
 
@@ -510,7 +594,9 @@ app.post("/api/users", async (req, res) => {
   if (list.some((u) => u.toLowerCase() === clean.toLowerCase())) {
     return res.status(409).json({ error: "用户已存在" });
   }
-  saveConfig({ ...config, staticUsernames: [...list, clean] });
+  const nextStaticUsernames = [...list, clean];
+  saveConfig({ ...config, staticUsernames: nextStaticUsernames });
+  syncStaticUserStatuses(list, nextStaticUsernames, "static");
 
   let avatarFetched = false;
   let avatarUrl: string | undefined;
@@ -524,6 +610,12 @@ app.post("/api/users", async (req, res) => {
       name: user.name,
       avatar_url: (user as { profile_image_url?: string }).profile_image_url,
       last_seen_at: Date.now(),
+      monitor_status: "active",
+    });
+    store.setUserMonitorStatusById(user.id, "active", {
+      at: Date.now(),
+      source: "static",
+      reason: "manual_add",
     });
     avatarUrl = (user as { profile_image_url?: string }).profile_image_url;
     avatarFetched = Boolean(avatarUrl);
@@ -545,7 +637,44 @@ app.delete("/api/users/:username", (req, res) => {
   const list = normalizeUsernameList(config.staticUsernames);
   const nextList = list.filter((u) => u.toLowerCase() !== clean);
   saveConfig({ ...config, staticUsernames: nextList });
-  res.json({ ok: true });
+  applyUserMonitorStatus(clean, "removed", "static", "manual_remove");
+  res.json({ ok: true, removed: true });
+});
+
+app.post("/api/users/:username/status", (req, res) => {
+  const { username } = req.params;
+  const { status } = (req.body ?? {}) as { status?: MonitorStatus };
+  const clean = normalizeUsername(username);
+  if (!clean || !isValidUsername(clean)) {
+    return res.status(400).json({ error: "用户名不合法（仅支持字母、数字、下划线，长度 1-15）" });
+  }
+  if (!status || !MONITOR_STATUS_VALUES.includes(status)) {
+    return res.status(400).json({ error: "status 必须是 active/paused/removed/blocked_or_not_found" });
+  }
+
+  const { config } = loadConfig();
+  if (config.mode !== "static") {
+    return res.status(400).json({ error: "仅静态模式支持手动切换用户状态" });
+  }
+
+  const staticList = normalizeUsernameList(config.staticUsernames);
+  const staticByKey = new Map(staticList.map((u) => [u.toLowerCase(), u]));
+  const key = clean.toLowerCase();
+  const nextStaticSet = new Map(staticByKey);
+  if (status === "active") {
+    nextStaticSet.set(key, clean);
+  } else {
+    nextStaticSet.delete(key);
+  }
+  const nextStaticUsernames = Array.from(nextStaticSet.values());
+  saveConfig({ ...config, staticUsernames: nextStaticUsernames });
+  applyUserMonitorStatus(clean, status, "static", "manual_status_change");
+
+  return res.json({
+    ok: true,
+    status,
+    targeting: status === "active",
+  });
 });
 
 // --- 分析 ---
@@ -735,7 +864,12 @@ app.put("/api/config", (req, res) => {
       mediaCache: validatedMediaCache,
     };
 
+    const previousStatic = normalizeUsernameList(config.staticUsernames);
+    const nextStatic = normalizeUsernameList(validatedConfig.staticUsernames);
     saveConfig(validatedConfig);
+    if (validatedConfig.mode === "static") {
+      syncStaticUserStatuses(previousStatic, nextStatic, "static");
+    }
     // 若 schedule 变更，重启调度器
     if (updated.schedule && updated.schedule !== config.schedule) {
       startCron(validatedConfig.schedule);

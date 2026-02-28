@@ -1,6 +1,10 @@
 import Database from "better-sqlite3";
 import path from "path";
-import { TweetEntity, UserEntity } from "./types";
+import {
+  MonitorStatus,
+  TweetEntity,
+  UserEntity,
+} from "./types";
 
 export interface MediaAssetUpsert {
   source_hash: string;
@@ -111,6 +115,11 @@ export interface AcquireTaskRunResult {
 export class Store {
   private db: Database.Database;
   private stmtUpsertUser!: Database.Statement;
+  private stmtGetUserByUsername!: Database.Statement;
+  private stmtSetUserMonitorStatusById!: Database.Statement;
+  private stmtHasOpenMonitoringPeriodByUserId!: Database.Statement;
+  private stmtInsertMonitoringPeriod!: Database.Statement;
+  private stmtCloseMonitoringPeriodsByUserId!: Database.Statement;
   private stmtInsertTweet!: Database.Statement;
   private stmtGetLastTweetId!: Database.Statement;
   private stmtSetLastTweetId!: Database.Statement;
@@ -148,7 +157,10 @@ export class Store {
         username TEXT NOT NULL,
         name TEXT,
         avatar_url TEXT,
-        last_seen_at INTEGER
+        last_seen_at INTEGER,
+        monitor_status TEXT NOT NULL DEFAULT 'active',
+        monitoring_started_at INTEGER,
+        monitoring_ended_at INTEGER
       );
 
       CREATE TABLE IF NOT EXISTS tweets (
@@ -160,7 +172,22 @@ export class Store {
         media_json TEXT,
         entities_json TEXT,
         raw_json TEXT,
+        ingest_source TEXT NOT NULL DEFAULT 'direct',
+        captured_at INTEGER,
+        monitor_status_at_capture TEXT NOT NULL DEFAULT 'unknown',
         FOREIGN KEY (user_id) REFERENCES users(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS user_monitor_periods (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        source TEXT,
+        reason TEXT,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS user_latest (
@@ -248,12 +275,16 @@ export class Store {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_tweets_user_created ON tweets(user_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_tweets_created ON tweets(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tweets_monitor_capture ON tweets(monitor_status_at_capture, captured_at DESC);
       CREATE INDEX IF NOT EXISTS idx_tweet_media_source_hash ON tweet_media(source_hash);
       CREATE INDEX IF NOT EXISTS idx_media_assets_last_accessed ON media_assets(last_accessed_at ASC);
       CREATE INDEX IF NOT EXISTS idx_user_rate_limits_blocked_until ON user_rate_limits(blocked_until);
       CREATE INDEX IF NOT EXISTS idx_task_runs_status_next_retry ON task_runs(status, next_retry_at);
       CREATE INDEX IF NOT EXISTS idx_tweet_refs_tweet_id ON tweet_refs(tweet_id);
       CREATE INDEX IF NOT EXISTS idx_tweet_refs_ref_tweet_id ON tweet_refs(ref_tweet_id);
+      CREATE INDEX IF NOT EXISTS idx_users_monitor_status ON users(monitor_status);
+      CREATE INDEX IF NOT EXISTS idx_user_monitor_periods_user_started ON user_monitor_periods(user_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_user_monitor_periods_user_open ON user_monitor_periods(user_id, ended_at);
     `);
 
     // 兼容旧库结构：历史库可能缺少部分列
@@ -264,6 +295,18 @@ export class Store {
     if (!hasAvatarUrl) {
       this.db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT");
     }
+    const hasMonitorStatus = userCols.some((col) => col.name === "monitor_status");
+    if (!hasMonitorStatus) {
+      this.db.exec("ALTER TABLE users ADD COLUMN monitor_status TEXT NOT NULL DEFAULT 'active'");
+    }
+    const hasMonitoringStartedAt = userCols.some((col) => col.name === "monitoring_started_at");
+    if (!hasMonitoringStartedAt) {
+      this.db.exec("ALTER TABLE users ADD COLUMN monitoring_started_at INTEGER");
+    }
+    const hasMonitoringEndedAt = userCols.some((col) => col.name === "monitoring_ended_at");
+    if (!hasMonitoringEndedAt) {
+      this.db.exec("ALTER TABLE users ADD COLUMN monitoring_ended_at INTEGER");
+    }
 
     const tweetCols = this.db
       .prepare("PRAGMA table_info(tweets)")
@@ -272,21 +315,142 @@ export class Store {
     if (!hasMediaJson) {
       this.db.exec("ALTER TABLE tweets ADD COLUMN media_json TEXT");
     }
+    const hasIngestSource = tweetCols.some((col) => col.name === "ingest_source");
+    if (!hasIngestSource) {
+      this.db.exec("ALTER TABLE tweets ADD COLUMN ingest_source TEXT NOT NULL DEFAULT 'direct'");
+    }
+    const hasCapturedAt = tweetCols.some((col) => col.name === "captured_at");
+    if (!hasCapturedAt) {
+      this.db.exec("ALTER TABLE tweets ADD COLUMN captured_at INTEGER");
+    }
+    const hasMonitorCaptureStatus = tweetCols.some((col) => col.name === "monitor_status_at_capture");
+    if (!hasMonitorCaptureStatus) {
+      this.db.exec(
+        "ALTER TABLE tweets ADD COLUMN monitor_status_at_capture TEXT NOT NULL DEFAULT 'unknown'"
+      );
+    }
+
+    this.db.exec(`
+      UPDATE users
+      SET monitor_status = COALESCE(NULLIF(monitor_status, ''), 'active')
+      WHERE monitor_status IS NULL OR monitor_status = '';
+      UPDATE tweets
+      SET ingest_source = COALESCE(NULLIF(ingest_source, ''), 'direct')
+      WHERE ingest_source IS NULL OR ingest_source = '';
+      UPDATE tweets
+      SET monitor_status_at_capture = COALESCE(NULLIF(monitor_status_at_capture, ''), 'unknown')
+      WHERE monitor_status_at_capture IS NULL OR monitor_status_at_capture = '';
+      UPDATE tweets
+      SET captured_at = COALESCE(captured_at, CAST(strftime('%s', created_at) AS INTEGER) * 1000)
+      WHERE captured_at IS NULL AND created_at IS NOT NULL;
+    `);
   }
 
   private prepareStatements() {
     this.stmtUpsertUser = this.db.prepare(`
-      INSERT INTO users (id, username, name, avatar_url, last_seen_at)
-      VALUES (@id, @username, @name, @avatar_url, @last_seen_at)
+      INSERT INTO users (
+        id,
+        username,
+        name,
+        avatar_url,
+        last_seen_at,
+        monitor_status,
+        monitoring_started_at,
+        monitoring_ended_at
+      )
+      VALUES (
+        @id,
+        @username,
+        @name,
+        @avatar_url,
+        @last_seen_at,
+        COALESCE(@monitor_status, 'active'),
+        @monitoring_started_at,
+        @monitoring_ended_at
+      )
       ON CONFLICT(id) DO UPDATE SET
         username = excluded.username,
         name = excluded.name,
         avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
-        last_seen_at = excluded.last_seen_at
+        last_seen_at = excluded.last_seen_at,
+        monitor_status = COALESCE(excluded.monitor_status, users.monitor_status, 'active'),
+        monitoring_started_at = COALESCE(excluded.monitoring_started_at, users.monitoring_started_at),
+        monitoring_ended_at = CASE
+          WHEN COALESCE(excluded.monitor_status, users.monitor_status, 'active') = 'active' THEN NULL
+          ELSE COALESCE(excluded.monitoring_ended_at, users.monitoring_ended_at)
+        END
+    `);
+    this.stmtGetUserByUsername = this.db.prepare(`
+      SELECT id, username, monitor_status
+      FROM users
+      WHERE username = ? COLLATE NOCASE
+      LIMIT 1
+    `);
+    this.stmtSetUserMonitorStatusById = this.db.prepare(`
+      UPDATE users
+      SET
+        monitor_status = ?,
+        monitoring_started_at = CASE
+          WHEN ? = 'active' THEN COALESCE(monitoring_started_at, ?)
+          ELSE monitoring_started_at
+        END,
+        monitoring_ended_at = CASE
+          WHEN ? = 'active' THEN NULL
+          WHEN ? = 'blocked_or_not_found' THEN monitoring_ended_at
+          ELSE ?
+        END
+      WHERE id = ?
+    `);
+    this.stmtHasOpenMonitoringPeriodByUserId = this.db.prepare(`
+      SELECT id
+      FROM user_monitor_periods
+      WHERE user_id = ? AND ended_at IS NULL
+      LIMIT 1
+    `);
+    this.stmtInsertMonitoringPeriod = this.db.prepare(`
+      INSERT INTO user_monitor_periods (
+        user_id,
+        source,
+        reason,
+        started_at,
+        ended_at,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, NULL, ?, ?)
+    `);
+    this.stmtCloseMonitoringPeriodsByUserId = this.db.prepare(`
+      UPDATE user_monitor_periods
+      SET ended_at = ?, updated_at = ?
+      WHERE user_id = ? AND ended_at IS NULL
     `);
     this.stmtInsertTweet = this.db.prepare(`
-      INSERT INTO tweets (id, user_id, text, created_at, lang, media_json, entities_json, raw_json)
-      VALUES (@id, @user_id, @text, @created_at, @lang, @media_json, @entities_json, @raw_json)
+      INSERT INTO tweets (
+        id,
+        user_id,
+        text,
+        created_at,
+        lang,
+        media_json,
+        entities_json,
+        raw_json,
+        ingest_source,
+        captured_at,
+        monitor_status_at_capture
+      )
+      VALUES (
+        @id,
+        @user_id,
+        @text,
+        @created_at,
+        @lang,
+        @media_json,
+        @entities_json,
+        @raw_json,
+        COALESCE(@ingest_source, 'direct'),
+        @captured_at,
+        COALESCE(@monitor_status_at_capture, 'unknown')
+      )
       ON CONFLICT(id) DO UPDATE SET
         user_id = excluded.user_id,
         text = excluded.text,
@@ -294,7 +458,14 @@ export class Store {
         lang = COALESCE(excluded.lang, tweets.lang),
         media_json = COALESCE(excluded.media_json, tweets.media_json),
         entities_json = COALESCE(excluded.entities_json, tweets.entities_json),
-        raw_json = COALESCE(excluded.raw_json, tweets.raw_json)
+        raw_json = COALESCE(excluded.raw_json, tweets.raw_json),
+        ingest_source = COALESCE(excluded.ingest_source, tweets.ingest_source, 'direct'),
+        captured_at = COALESCE(excluded.captured_at, tweets.captured_at),
+        monitor_status_at_capture = COALESCE(
+          excluded.monitor_status_at_capture,
+          tweets.monitor_status_at_capture,
+          'unknown'
+        )
     `);
     this.stmtGetLastTweetId = this.db.prepare(`
       SELECT last_tweet_id FROM user_latest WHERE user_id = ?
@@ -512,7 +683,58 @@ export class Store {
       ...user,
       avatar_url: user.avatar_url ?? null,
       last_seen_at: user.last_seen_at ?? Date.now(),
+      monitor_status: user.monitor_status ?? null,
+      monitoring_started_at: user.monitoring_started_at ?? null,
+      monitoring_ended_at: user.monitoring_ended_at ?? null,
     });
+  }
+
+  setUserMonitorStatusById(
+    userId: string,
+    status: MonitorStatus,
+    params: { at?: number; source?: string; reason?: string } = {}
+  ): boolean {
+    const at = params.at ?? Date.now();
+    const txn = this.db.transaction(() => {
+      const updated = this.stmtSetUserMonitorStatusById.run(
+        status,
+        status,
+        at,
+        status,
+        status,
+        at,
+        userId
+      );
+      if (!updated.changes) return false;
+
+      if (status === "active") {
+        const hasOpen = this.stmtHasOpenMonitoringPeriodByUserId.get(userId) as { id: number } | undefined;
+        if (!hasOpen) {
+          this.stmtInsertMonitoringPeriod.run(
+            userId,
+            params.source ?? null,
+            params.reason ?? null,
+            at,
+            at,
+            at
+          );
+        }
+      } else if (status === "paused" || status === "removed") {
+        this.stmtCloseMonitoringPeriodsByUserId.run(at, at, userId);
+      }
+      return true;
+    });
+    return txn();
+  }
+
+  setUserMonitorStatusByUsername(
+    username: string,
+    status: MonitorStatus,
+    params: { at?: number; source?: string; reason?: string } = {}
+  ): boolean {
+    const row = this.stmtGetUserByUsername.get(username) as { id: string } | undefined;
+    if (!row?.id) return false;
+    return this.setUserMonitorStatusById(row.id, status, params);
   }
 
   saveTweets(tweets: TweetEntity[]) {
@@ -629,9 +851,25 @@ export class Store {
 
   listUsers() {
     return this.db.prepare(`
-      SELECT id, username, name, avatar_url FROM users
+      SELECT
+        id,
+        username,
+        name,
+        avatar_url,
+        monitor_status,
+        monitoring_started_at,
+        monitoring_ended_at
+      FROM users
       ORDER BY username ASC
-    `).all() as { id: string; username: string; name?: string; avatar_url?: string }[];
+    `).all() as {
+      id: string;
+      username: string;
+      name?: string;
+      avatar_url?: string;
+      monitor_status?: MonitorStatus;
+      monitoring_started_at?: number;
+      monitoring_ended_at?: number;
+    }[];
   }
 
   queryTweets(opts: {
@@ -640,6 +878,7 @@ export class Store {
     until?: string;
     contains?: string;
     lang?: string;
+    includeHistorical?: boolean;
     limit?: number;
     offset?: number;
   }) {
@@ -651,10 +890,19 @@ export class Store {
     if (opts.until)    { conditions.push("t.created_at <= ?"); params.push(opts.until); }
     if (opts.lang)     { conditions.push("t.lang = ?"); params.push(opts.lang); }
     if (opts.contains) { conditions.push("t.text LIKE ? COLLATE NOCASE"); params.push(`%${opts.contains}%`); }
+    if (opts.includeHistorical === false) {
+      conditions.push("COALESCE(u.monitor_status, 'active') = 'active'");
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const sql = `
-      SELECT t.*, u.username, u.name as user_name, u.avatar_url as user_avatar_url FROM tweets t
+      SELECT
+        t.*,
+        u.username,
+        u.name as user_name,
+        u.avatar_url as user_avatar_url,
+        u.monitor_status as user_monitor_status
+      FROM tweets t
       JOIN users u ON t.user_id = u.id
       ${where}
       ORDER BY t.created_at DESC LIMIT ? OFFSET ?
@@ -665,6 +913,7 @@ export class Store {
       username: string;
       user_name?: string;
       user_avatar_url?: string;
+      user_monitor_status?: MonitorStatus;
     })[];
   }
 
@@ -1010,6 +1259,7 @@ export class Store {
     until?: string;
     contains?: string;
     lang?: string;
+    includeHistorical?: boolean;
   }) {
     const conditions: string[] = [];
     const params: (string | number)[] = [];
@@ -1019,6 +1269,9 @@ export class Store {
     if (opts.until)    { conditions.push("t.created_at <= ?"); params.push(opts.until); }
     if (opts.lang)     { conditions.push("t.lang = ?"); params.push(opts.lang); }
     if (opts.contains) { conditions.push("t.text LIKE ? COLLATE NOCASE"); params.push(`%${opts.contains}%`); }
+    if (opts.includeHistorical === false) {
+      conditions.push("COALESCE(u.monitor_status, 'active') = 'active'");
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const sql = `SELECT COUNT(*) as count FROM tweets t JOIN users u ON t.user_id = u.id ${where}`;
@@ -1055,10 +1308,22 @@ export class Store {
     name?: string;
     avatar_url?: string;
     last_seen_at?: number;
+    monitor_status?: MonitorStatus;
+    monitoring_started_at?: number;
+    monitoring_ended_at?: number;
     count: number;
   }[] {
     return this.db.prepare(`
-      SELECT u.id, u.username, u.name, u.avatar_url, u.last_seen_at, COUNT(t.id) as count
+      SELECT
+        u.id,
+        u.username,
+        u.name,
+        u.avatar_url,
+        u.last_seen_at,
+        u.monitor_status,
+        u.monitoring_started_at,
+        u.monitoring_ended_at,
+        COUNT(t.id) as count
       FROM users u
       LEFT JOIN tweets t ON u.id = t.user_id
       GROUP BY u.id
@@ -1069,6 +1334,9 @@ export class Store {
       name?: string;
       avatar_url?: string;
       last_seen_at?: number;
+      monitor_status?: MonitorStatus;
+      monitoring_started_at?: number;
+      monitoring_ended_at?: number;
       count: number;
     }[];
   }

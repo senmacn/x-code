@@ -1,3 +1,5 @@
+export type MonitorStatus = "active" | "paused" | "removed" | "blocked_or_not_found";
+
 export interface Tweet {
   id: string;
   user_id: string;
@@ -7,9 +9,14 @@ export interface Tweet {
   media_json?: string;
   entities_json?: string;
   raw_json?: string;
+  ingest_source?: "direct" | "backfill" | "reference";
+  captured_at?: number;
+  monitor_status_at_capture?: "active_target" | "inactive_target" | "non_target_reference" | "unknown";
   username: string;
   user_name?: string;
   user_avatar_url?: string;
+  user_monitor_status?: MonitorStatus;
+  user_is_priority?: boolean;
   references?: TweetReference[];
 }
 
@@ -51,6 +58,10 @@ export interface User {
   name?: string;
   avatar_url?: string;
   last_seen_at?: number;
+  monitor_status?: MonitorStatus;
+  monitoring_started_at?: number;
+  monitoring_ended_at?: number;
+  current_target?: boolean;
   count: number;
 }
 
@@ -95,6 +106,7 @@ export interface TweetFilters {
   until?: string;
   contains?: string;
   lang?: string;
+  includeHistorical?: number;
   limit?: number;
   offset?: number;
 }

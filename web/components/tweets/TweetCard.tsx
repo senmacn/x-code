@@ -113,6 +113,43 @@ const isImageUrl = (url?: string): boolean => {
   );
 };
 
+const getCaptureBadges = (tweet: Tweet): Array<{ label: string; className: string }> => {
+  const badges: Array<{ label: string; className: string }> = [];
+  if (tweet.monitor_status_at_capture === "active_target") {
+    badges.push({
+      label: "监控中采集",
+      className: "text-emerald-700 bg-emerald-100 border-emerald-200",
+    });
+  } else if (tweet.monitor_status_at_capture === "inactive_target") {
+    badges.push({
+      label: "非监控期采集",
+      className: "text-amber-700 bg-amber-100 border-amber-200",
+    });
+  } else if (tweet.monitor_status_at_capture === "non_target_reference") {
+    badges.push({
+      label: "引用推文",
+      className: "text-sky-700 bg-sky-100 border-sky-200",
+    });
+  }
+  if (tweet.user_monitor_status === "removed") {
+    badges.push({
+      label: "作者已移除",
+      className: "text-slate-700 bg-slate-100 border-slate-200",
+    });
+  } else if (tweet.user_monitor_status === "paused") {
+    badges.push({
+      label: "作者已暂停",
+      className: "text-amber-700 bg-amber-100 border-amber-200",
+    });
+  } else if (tweet.user_monitor_status === "blocked_or_not_found") {
+    badges.push({
+      label: "作者不可抓取",
+      className: "text-rose-700 bg-rose-100 border-rose-200",
+    });
+  }
+  return badges;
+};
+
 export const TweetCard = ({
   tweet,
   compact = false,
@@ -132,6 +169,7 @@ export const TweetCard = ({
 
   const tweetUrl = `https://x.com/${tweet.username}/status/${tweet.id}`;
   const displayText = buildDisplayText(tweet) || tweet.text;
+  const captureBadges = getCaptureBadges(tweet);
   const mediaItems = parseMedia(tweet);
   const visibleMedia = compact ? mediaItems.slice(0, 1) : mediaItems.slice(0, 4);
   const references = compact
@@ -153,7 +191,17 @@ export const TweetCard = ({
             <p className="text-sm font-semibold text-slate-900">
               {tweet.user_name || tweet.username}
             </p>
-            <p className="text-xs text-slate-400">@{tweet.username}</p>
+            <div className="mt-0.5 flex items-center gap-1.5">
+              <p className="text-xs text-slate-400">@{tweet.username}</p>
+              {tweet.user_is_priority && (
+                <span
+                  className="inline-flex items-center rounded-full border border-amber-200 bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700"
+                  title="该用户在重点用户列表中"
+                >
+                  重点用户
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -190,6 +238,19 @@ export const TweetCard = ({
       >
         {highlightEntities(displayText)}
       </p>
+
+      {captureBadges.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {captureBadges.map((badge) => (
+            <span
+              key={`${tweet.id}-${badge.label}`}
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${badge.className}`}
+            >
+              {badge.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {references.length > 0 && (
         <div className="mt-3 space-y-2">
