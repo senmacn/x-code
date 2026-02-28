@@ -271,22 +271,6 @@ export class Store {
         FOREIGN KEY (tweet_id) REFERENCES tweets(id) ON DELETE CASCADE
       );
     `);
-    // 索引优化：按用户与时间查询更高效
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_tweets_user_created ON tweets(user_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_tweets_created ON tweets(created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_tweets_monitor_capture ON tweets(monitor_status_at_capture, captured_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_tweet_media_source_hash ON tweet_media(source_hash);
-      CREATE INDEX IF NOT EXISTS idx_media_assets_last_accessed ON media_assets(last_accessed_at ASC);
-      CREATE INDEX IF NOT EXISTS idx_user_rate_limits_blocked_until ON user_rate_limits(blocked_until);
-      CREATE INDEX IF NOT EXISTS idx_task_runs_status_next_retry ON task_runs(status, next_retry_at);
-      CREATE INDEX IF NOT EXISTS idx_tweet_refs_tweet_id ON tweet_refs(tweet_id);
-      CREATE INDEX IF NOT EXISTS idx_tweet_refs_ref_tweet_id ON tweet_refs(ref_tweet_id);
-      CREATE INDEX IF NOT EXISTS idx_users_monitor_status ON users(monitor_status);
-      CREATE INDEX IF NOT EXISTS idx_user_monitor_periods_user_started ON user_monitor_periods(user_id, started_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_user_monitor_periods_user_open ON user_monitor_periods(user_id, ended_at);
-    `);
-
     // 兼容旧库结构：历史库可能缺少部分列
     const userCols = this.db
       .prepare("PRAGMA table_info(users)")
@@ -343,6 +327,22 @@ export class Store {
       UPDATE tweets
       SET captured_at = COALESCE(captured_at, CAST(strftime('%s', created_at) AS INTEGER) * 1000)
       WHERE captured_at IS NULL AND created_at IS NOT NULL;
+    `);
+
+    // 索引优化：按用户与时间查询更高效（放在补列迁移之后，兼容老库）
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_tweets_user_created ON tweets(user_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tweets_created ON tweets(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tweets_monitor_capture ON tweets(monitor_status_at_capture, captured_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tweet_media_source_hash ON tweet_media(source_hash);
+      CREATE INDEX IF NOT EXISTS idx_media_assets_last_accessed ON media_assets(last_accessed_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_user_rate_limits_blocked_until ON user_rate_limits(blocked_until);
+      CREATE INDEX IF NOT EXISTS idx_task_runs_status_next_retry ON task_runs(status, next_retry_at);
+      CREATE INDEX IF NOT EXISTS idx_tweet_refs_tweet_id ON tweet_refs(tweet_id);
+      CREATE INDEX IF NOT EXISTS idx_tweet_refs_ref_tweet_id ON tweet_refs(ref_tweet_id);
+      CREATE INDEX IF NOT EXISTS idx_users_monitor_status ON users(monitor_status);
+      CREATE INDEX IF NOT EXISTS idx_user_monitor_periods_user_started ON user_monitor_periods(user_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_user_monitor_periods_user_open ON user_monitor_periods(user_id, ended_at);
     `);
   }
 

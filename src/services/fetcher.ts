@@ -68,6 +68,8 @@ export async function fetchForUsernames(
   appConfig?: AppConfig,
   hooks?: {
     onProgress?: (progress: FetchProgress) => void;
+    authFallbackClient?: TwitterApi;
+    authFallbackLabel?: string;
   }
 ): Promise<FetchSummary> {
   const summary: FetchSummary = {
@@ -80,6 +82,10 @@ export async function fetchForUsernames(
   };
   let processedUsers = 0;
   let authConfigError: string | null = null;
+  const fallbackClient = hooks?.authFallbackClient;
+  const fallbackLabel = hooks?.authFallbackLabel ?? "OAuth1.0a 用户上下文";
+  let activeClient = client;
+  let switchedToFallback = false;
   store.cleanupExpiredUserRateLimits();
   const emitProgress = (username?: string) => {
     hooks?.onProgress?.({
@@ -110,8 +116,8 @@ export async function fetchForUsernames(
       return;
     }
 
-    try {
-      const user = await getUserByUsername(client, uname);
+    const fetchWithClient = async (currentClient: TwitterApi) => {
+      const user = await getUserByUsername(currentClient, uname);
       const fetchedAt = Date.now();
       const userEntity: UserEntity = {
         id: user.id,
@@ -129,7 +135,7 @@ export async function fetchForUsernames(
       });
 
       const sinceId = store.getLastTweetId(user.id);
-      const timelineItems = await getUserTweetsSince(client, user.id, sinceId, maxPerUser);
+      const timelineItems = await getUserTweetsSince(currentClient, user.id, sinceId, maxPerUser);
       if (!timelineItems || timelineItems.length === 0) {
         summary.successUsers += 1;
         logger.info({ username: uname }, "无增量推文");
@@ -226,16 +232,43 @@ export async function fetchForUsernames(
       logger.info({ username: uname, count: entities.length }, "拉取并保存推文完毕");
       processedUsers += 1;
       emitProgress(uname);
+    };
+
+    try {
+      await fetchWithClient(activeClient);
     } catch (err: any) {
-      const status = getStatusCode(err);
-      const title = err?.data?.title;
-      const detail = err?.data?.detail;
-      const msg = detail || title || err?.message || String(err);
-      const isAuthProjectBindingError = status === 403 && isProjectBindingAuthError(err);
+      let currentError = err;
+      let status = getStatusCode(currentError);
+      let title = currentError?.data?.title;
+      let detail = currentError?.data?.detail;
+      let msg = detail || title || currentError?.message || String(currentError);
+
+      if (status === 401 && fallbackClient && activeClient !== fallbackClient) {
+        if (!switchedToFallback) {
+          logger.warn(
+            { username: uname, status, error: msg, fallback: fallbackLabel },
+            "主认证读取失败，切换到备用认证"
+          );
+        }
+        activeClient = fallbackClient;
+        switchedToFallback = true;
+        try {
+          await fetchWithClient(activeClient);
+          return;
+        } catch (retryErr: any) {
+          currentError = retryErr;
+          status = getStatusCode(currentError);
+          title = currentError?.data?.title;
+          detail = currentError?.data?.detail;
+          msg = detail || title || currentError?.message || String(currentError);
+        }
+      }
+
+      const isAuthProjectBindingError = status === 403 && isProjectBindingAuthError(currentError);
 
       if (status === 429) {
         summary.rateLimitedUsers += 1;
-        const resetAt = extractRateLimitResetAt(err) ?? Date.now() + DEFAULT_RATE_LIMIT_BACKOFF_MS;
+        const resetAt = extractRateLimitResetAt(currentError) ?? Date.now() + DEFAULT_RATE_LIMIT_BACKOFF_MS;
         store.setUserRateLimit(unameKey, resetAt, msg);
         store.setUserMonitorStatusByUsername(uname, "blocked_or_not_found", {
           at: Date.now(),
@@ -257,6 +290,18 @@ export async function fetchForUsernames(
         logger.error(
           { username: uname, status, error: msg },
           "X API 鉴权配置错误（App 未绑定 Project），已停止本轮剩余抓取"
+        );
+        processedUsers += 1;
+        emitProgress(uname);
+        return;
+      }
+
+      if (status === 401) {
+        summary.failedUsers += 1;
+        authConfigError = msg;
+        logger.error(
+          { username: uname, status, error: msg },
+          "X API 鉴权失败（401 Unauthorized），已停止本轮剩余抓取"
         );
         processedUsers += 1;
         emitProgress(uname);

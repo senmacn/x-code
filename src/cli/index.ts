@@ -122,8 +122,16 @@ async function bootstrap() {
   // 以下命令需要 API 客户端
   const agent = getProxyAgent(config.proxy);
   let readClient: TwitterApi;
+  let oauthFallbackClient: TwitterApi | undefined;
   try {
     readClient = createXClient(secrets, agent, "read");
+    if (secrets.X_BEARER_TOKEN) {
+      try {
+        oauthFallbackClient = createXClient(secrets, agent, "user");
+      } catch {
+        oauthFallbackClient = undefined;
+      }
+    }
   } catch (e: any) {
     logger.error({ error: e?.message || String(e) }, "缺少授权，无法访问 X API");
     process.exit(1);
@@ -155,7 +163,11 @@ async function bootstrap() {
       usernames,
       config.maxPerUser,
       config.concurrency,
-      config
+      config,
+      {
+        authFallbackClient: oauthFallbackClient,
+        authFallbackLabel: "OAuth1.0a 用户上下文",
+      }
     );
     process.exit(0);
   }
@@ -169,7 +181,11 @@ async function bootstrap() {
         usernames,
         config.maxPerUser,
         config.concurrency,
-        config
+        config,
+        {
+          authFallbackClient: oauthFallbackClient,
+          authFallbackLabel: "OAuth1.0a 用户上下文",
+        }
       );
     };
     await task();

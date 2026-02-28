@@ -132,6 +132,7 @@ npm run show -- --user jack --limit 20   # 终端查看推文
 - 若未设置 Bearer，读取接口会回退到 OAuth1.0a（需四项都存在）
 - 动态关注列表接口强制使用 OAuth1.0a；失败时会回退到 `staticUsernames`
 - 若凭据误填为 URL 编码形式（如 `%2B`、`%3D`），服务会自动尝试解码后再鉴权
+- 若读取接口出现 `401 Unauthorized`，会自动切换到 OAuth1.0a 备用认证重试
 
 常见 403 排查（示例错误：`must use keys and tokens ... attached to a Project`）：
 

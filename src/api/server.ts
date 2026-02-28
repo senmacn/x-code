@@ -200,6 +200,14 @@ export const runFetch = async (): Promise<void> => {
     fetchStatus.isRunning = true;
     const agent = getProxyAgent(config.proxy);
     const readClient = createXClient(secrets, agent, "read");
+    let oauthFallbackClient: ReturnType<typeof createXClient> | undefined;
+    if (secrets.X_BEARER_TOKEN) {
+      try {
+        oauthFallbackClient = createXClient(secrets, agent, "user");
+      } catch {
+        oauthFallbackClient = undefined;
+      }
+    }
     const staticUsernames = normalizeUsernameList(config.staticUsernames);
     const usernames =
       config.mode === "static" && staticUsernames.length
@@ -233,6 +241,8 @@ export const runFetch = async (): Promise<void> => {
       config.concurrency,
       config,
       {
+        authFallbackClient: oauthFallbackClient,
+        authFallbackLabel: "OAuth1.0a 用户上下文",
         onProgress: (progress) => {
           store.touchTaskRun(TASK_KEYS.fetch, JSON.stringify(progress));
         },
