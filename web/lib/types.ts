@@ -9,6 +9,7 @@ export interface Tweet {
   raw_json?: string;
   username: string;
   user_name?: string;
+  user_avatar_url?: string;
   references?: TweetReference[];
 }
 

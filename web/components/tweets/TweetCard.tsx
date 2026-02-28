@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { ReferencedTweet, Tweet, TweetReference } from "@/lib/types";
 import { relativeTime, absoluteTime } from "@/lib/utils";
+import { UserAvatar } from "@/components/ui/UserAvatar";
+import { MediaPreviewModal } from "@/components/tweets/MediaPreviewModal";
 
 const TWITTER_BLUE = "text-blue-500";
 
@@ -24,7 +26,8 @@ const highlightEntities = (text: string): React.ReactNode => {
 interface TweetCardProps {
   tweet: Tweet;
   compact?: boolean;
-  timeDisplayMode?: "relative" | "absolute" | "toggle";
+  timeDisplayMode?: "relative" | "absolute";
+  onToggleTimeDisplay?: () => void;
 }
 
 interface TweetMedia {
@@ -114,10 +117,16 @@ export const TweetCard = ({
   tweet,
   compact = false,
   timeDisplayMode = "relative",
+  onToggleTimeDisplay,
 }: TweetCardProps) => {
-  const [showAbsoluteTime, setShowAbsoluteTime] = useState(false);
-  const canToggleTime = timeDisplayMode === "toggle";
-  const useAbsoluteTime = timeDisplayMode === "absolute" || (canToggleTime && showAbsoluteTime);
+  const [preview, setPreview] = useState<{
+    imageUrl: string;
+    imageAlt: string;
+    sourceUrl: string;
+  } | null>(null);
+
+  const canToggleTime = typeof onToggleTimeDisplay === "function";
+  const useAbsoluteTime = timeDisplayMode === "absolute";
   const formatTime = (iso?: string) =>
     useAbsoluteTime ? absoluteTime(iso) : relativeTime(iso);
 
@@ -134,9 +143,12 @@ export const TweetCard = ({
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
-            {tweet.username[0]?.toUpperCase()}
-          </div>
+          <UserAvatar
+            username={tweet.username}
+            name={tweet.user_name}
+            avatarUrl={tweet.user_avatar_url}
+            size="md"
+          />
           <div>
             <p className="text-sm font-semibold text-slate-900">
               {tweet.user_name || tweet.username}
@@ -150,7 +162,7 @@ export const TweetCard = ({
               type="button"
               className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
               title={useAbsoluteTime ? "点击切换为相对时间" : "点击切换为详细时间"}
-              onClick={() => setShowAbsoluteTime((v) => !v)}
+              onClick={onToggleTimeDisplay}
             >
               {formatTime(tweet.created_at)}
             </button>
@@ -189,14 +201,22 @@ export const TweetCard = ({
             const refPreview =
               refMedia.length && (refMedia[0].local_url || refMedia[0].url || refMedia[0].preview_image_url);
             return (
-              <a
+              <div
                 key={`${tweet.id}-${reference.ref_tweet_id}-${reference.source}`}
-                href={refUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 hover:border-slate-300 transition-colors"
+                className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2"
               >
-                <p className="text-[11px] text-slate-500 mb-1">{getReferenceLabel(reference.ref_type)}</p>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-slate-500">{getReferenceLabel(reference.ref_type)}</p>
+                  <a
+                    href={refUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-slate-400 hover:text-sky-500 transition-colors"
+                    aria-label="查看引用原帖"
+                  >
+                    <ExternalLink size={12} />
+                  </a>
+                </div>
                 {unavailable ? (
                   <p className="text-sm text-slate-500">引用推文不可用或暂未回填</p>
                 ) : (
@@ -207,16 +227,28 @@ export const TweetCard = ({
                     </p>
                     <p className="text-sm text-slate-700 mt-1 line-clamp-3">{refTweet.text}</p>
                     {refPreview && (
-                      <img
-                        src={refPreview}
-                        alt="引用推文媒体预览"
-                        loading="lazy"
-                        className="mt-2 h-28 w-full rounded-lg object-cover border border-slate-200"
-                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPreview({
+                            imageUrl: refPreview,
+                            imageAlt: "引用推文媒体预览",
+                            sourceUrl: refUrl,
+                          })
+                        }
+                        className="mt-2 block w-full"
+                      >
+                        <img
+                          src={refPreview}
+                          alt="引用推文媒体预览"
+                          loading="lazy"
+                          className="h-28 w-full rounded-lg object-cover border border-slate-200"
+                        />
+                      </button>
                     )}
                   </>
                 )}
-              </a>
+              </div>
             );
           })}
         </div>
@@ -236,12 +268,17 @@ export const TweetCard = ({
               (media.type === "photo" ? media.url : media.preview_image_url || media.url);
             if (!previewUrl) return null;
             return (
-              <a
+              <button
+                type="button"
                 key={`${media.media_key}-${idx}`}
-                href={tweetUrl}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="group relative block overflow-hidden rounded-xl border border-slate-200"
+                onClick={() =>
+                  setPreview({
+                    imageUrl: previewUrl,
+                    imageAlt: media.alt_text || `${tweet.username} 的推文媒体`,
+                    sourceUrl: tweetUrl,
+                  })
+                }
               >
                 <img
                   src={previewUrl}
@@ -256,7 +293,7 @@ export const TweetCard = ({
                     {media.type === "video" ? "视频预览" : "GIF 预览"}
                   </span>
                 )}
-              </a>
+              </button>
             );
           })}
         </div>
@@ -268,6 +305,14 @@ export const TweetCard = ({
           {tweet.lang}
         </span>
       )}
+
+      <MediaPreviewModal
+        open={Boolean(preview)}
+        imageUrl={preview?.imageUrl}
+        imageAlt={preview?.imageAlt}
+        sourceUrl={preview?.sourceUrl || tweetUrl}
+        onClose={() => setPreview(null)}
+      />
     </div>
   );
 };

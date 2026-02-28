@@ -9,6 +9,7 @@ import { Plus, Trash2, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 
 export default function UsersPage() {
   const { data, isLoading, mutate, error: usersError } = useSWR("users", api.users.list, { refreshInterval: 30000 });
@@ -26,10 +27,10 @@ export default function UsersPage() {
     setAdding(true);
     setError("");
     try {
-      await api.users.add(name);
+      const result = await api.users.add(name);
       setNewUsername("");
       mutate();
-      toast.success(`已添加 @${name}`);
+      toast.success(result.avatarFetched ? `已添加 @${name}，头像已同步` : `已添加 @${name}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "添加失败");
     } finally {
@@ -127,9 +128,12 @@ export default function UsersPage() {
                 className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
-                    {user.username[0]?.toUpperCase()}
-                  </div>
+                  <UserAvatar
+                    username={user.username}
+                    name={user.name}
+                    avatarUrl={user.avatar_url}
+                    size="md"
+                  />
                   <div>
                     <p className="text-sm font-medium text-slate-900">
                       {user.name || user.username}

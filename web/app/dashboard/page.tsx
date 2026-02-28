@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import useSWR from "swr";
 import { TopBar } from "@/components/layout/TopBar";
 import { StatsCards } from "@/components/dashboard/StatsCards";
@@ -9,6 +10,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
+  const [showAbsoluteTime, setShowAbsoluteTime] = useState(false);
   const { data, isLoading, error } = useSWR(
     "dashboard/latest",
     () => api.tweets.list({ limit: 20 }),
@@ -25,7 +27,12 @@ export default function DashboardPage() {
 
           {/* Latest feed */}
           <section>
-            <h2 className="text-sm md:text-base font-semibold text-slate-700 mb-3">最新动态</h2>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm md:text-base font-semibold text-slate-700">最新动态</h2>
+              <span className="text-xs text-slate-400">
+                时间显示: {showAbsoluteTime ? "详细时间" : "相对时间"}
+              </span>
+            </div>
             {error && (
               <div className="surface-card border-rose-200 bg-rose-50/80 text-rose-700 px-4 py-3 text-sm mb-3">
                 数据加载失败：{error.message}
@@ -49,7 +56,13 @@ export default function DashboardPage() {
             )}
             <div className={cn("space-y-3 transition-opacity duration-200", isLoading && data ? "opacity-60" : "opacity-100")}>
               {data?.tweets?.map((t) => (
-                <TweetCard key={t.id} tweet={t} compact timeDisplayMode="toggle" />
+                <TweetCard
+                  key={t.id}
+                  tweet={t}
+                  compact
+                  timeDisplayMode={showAbsoluteTime ? "absolute" : "relative"}
+                  onToggleTimeDisplay={() => setShowAbsoluteTime((v) => !v)}
+                />
               ))}
             </div>
           </section>

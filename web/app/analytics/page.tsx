@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { TopBar } from "@/components/layout/TopBar";
 import { api } from "@/lib/api";
+import { UserAvatar } from "@/components/ui/UserAvatar";
 
 const DAYS_OPTIONS = [7, 14, 30, 90];
 
@@ -115,8 +116,16 @@ export default function AnalyticsPage() {
                 return (
                   <div key={user.id} className="flex items-center gap-3">
                     <span className="text-xs text-slate-400 w-4 text-right">{idx + 1}</span>
-                    <div className="w-28 truncate text-sm text-slate-700">
-                      @{user.username}
+                    <div className="flex w-36 items-center gap-2">
+                      <UserAvatar
+                        username={user.username}
+                        name={user.name}
+                        avatarUrl={user.avatar_url}
+                        size="sm"
+                      />
+                      <div className="truncate text-sm text-slate-700" title={`@${user.username}`}>
+                        @{user.username}
+                      </div>
                     </div>
                     <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
                       <div

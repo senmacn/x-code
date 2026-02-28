@@ -96,7 +96,8 @@ export const api = {
 
   users: {
     list: () => get<{ users: User[] }>("/users"),
-    add: (username: string) => post<{ ok: boolean }>("/users", { username }),
+    add: (username: string) =>
+      post<{ ok: boolean; avatarFetched?: boolean; avatarUrl?: string }>("/users", { username }),
     remove: (username: string) => del<{ ok: boolean }>(`/users/${encodeURIComponent(username)}`),
   },
 

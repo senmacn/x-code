@@ -654,14 +654,18 @@ export class Store {
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const sql = `
-      SELECT t.*, u.username, u.name as user_name FROM tweets t
+      SELECT t.*, u.username, u.name as user_name, u.avatar_url as user_avatar_url FROM tweets t
       JOIN users u ON t.user_id = u.id
       ${where}
       ORDER BY t.created_at DESC LIMIT ? OFFSET ?
     `;
     params.push(opts.limit ?? 20, opts.offset ?? 0);
 
-    return this.db.prepare(sql).all(...params) as (TweetEntity & { username: string; user_name?: string })[];
+    return this.db.prepare(sql).all(...params) as (TweetEntity & {
+      username: string;
+      user_name?: string;
+      user_avatar_url?: string;
+    })[];
   }
 
   listTweetsWithMedia(opts: { usernames?: string[]; limit?: number; offset?: number } = {}) {
