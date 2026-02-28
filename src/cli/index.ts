@@ -121,9 +121,9 @@ async function bootstrap() {
 
   // 以下命令需要 API 客户端
   const agent = getProxyAgent(config.proxy);
-  let client: TwitterApi;
+  let readClient: TwitterApi;
   try {
-    client = createXClient(secrets, agent);
+    readClient = createXClient(secrets, agent, "read");
   } catch (e: any) {
     logger.error({ error: e?.message || String(e) }, "缺少授权，无法访问 X API");
     process.exit(1);
@@ -134,11 +134,15 @@ async function bootstrap() {
       return config.staticUsernames;
     }
     try {
-      const followings = await getMyFollowings(client);
+      const userClient = createXClient(secrets, agent, "user");
+      const followings = await getMyFollowings(userClient);
       logger.info({ count: followings.length }, "已获取关注列表");
       return followings;
     } catch (e: any) {
-      logger.error({ error: e?.message || String(e) }, "获取关注列表失败，请检查授权");
+      logger.warn(
+        { error: e?.message || String(e), fallbackCount: config.staticUsernames?.length ?? 0 },
+        "获取关注列表失败，已回退 staticUsernames"
+      );
       return config.staticUsernames ?? [];
     }
   };
@@ -146,7 +150,7 @@ async function bootstrap() {
   if (cmd === "fetch-once") {
     const usernames = await resolveUsernames();
     await fetchForUsernames(
-      client,
+      readClient,
       store,
       usernames,
       config.maxPerUser,
@@ -160,7 +164,7 @@ async function bootstrap() {
     const task = async () => {
       const usernames = await resolveUsernames();
       await fetchForUsernames(
-        client,
+        readClient,
         store,
         usernames,
         config.maxPerUser,

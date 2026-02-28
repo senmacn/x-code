@@ -2,7 +2,7 @@ import { TwitterApi } from "twitter-api-v2";
 import { logger } from "../utils/logger";
 import { Store } from "../data/store";
 import { AppConfig, TweetEntity, UserEntity } from "../data/types";
-import { getUserByUsername, getUserTweetsSince } from "../clients/xClient";
+import { getUserByUsername, getUserTweetsSince, isProjectBindingAuthError } from "../clients/xClient";
 import { cacheMediaForTweet } from "./mediaCache";
 
 export interface FetchSummary {
@@ -79,6 +79,7 @@ export async function fetchForUsernames(
     fetchedTweets: 0,
   };
   let processedUsers = 0;
+  let authConfigError: string | null = null;
   store.cleanupExpiredUserRateLimits();
   const emitProgress = (username?: string) => {
     hooks?.onProgress?.({
@@ -89,6 +90,12 @@ export async function fetchForUsernames(
   };
 
   const fetchOne = async (username: string) => {
+    if (authConfigError) {
+      processedUsers += 1;
+      emitProgress(normalizeUsername(username));
+      return;
+    }
+
     const uname = normalizeUsername(username);
     const unameKey = uname.toLowerCase();
     const blockedUntil = store.getUserRateLimit(unameKey);
@@ -224,6 +231,7 @@ export async function fetchForUsernames(
       const title = err?.data?.title;
       const detail = err?.data?.detail;
       const msg = detail || title || err?.message || String(err);
+      const isAuthProjectBindingError = status === 403 && isProjectBindingAuthError(err);
 
       if (status === 429) {
         summary.rateLimitedUsers += 1;
@@ -243,7 +251,19 @@ export async function fetchForUsernames(
         return;
       }
 
-      if (status === 404 || status === 401 || status === 403) {
+      if (isAuthProjectBindingError) {
+        summary.failedUsers += 1;
+        authConfigError = msg;
+        logger.error(
+          { username: uname, status, error: msg },
+          "X API 鉴权配置错误（App 未绑定 Project），已停止本轮剩余抓取"
+        );
+        processedUsers += 1;
+        emitProgress(uname);
+        return;
+      }
+
+      if (status === 404 || status === 403) {
         store.setUserMonitorStatusByUsername(uname, "blocked_or_not_found", {
           at: Date.now(),
           source: appConfig?.mode ?? "static",
@@ -261,6 +281,11 @@ export async function fetchForUsernames(
   for (let i = 0; i < usernames.length; i += concurrency) {
     const chunk = usernames.slice(i, i + concurrency);
     await Promise.allSettled(chunk.map((u) => fetchOne(u)));
+    if (authConfigError) break;
+  }
+
+  if (authConfigError) {
+    throw new Error(`X API 鉴权失败：${authConfigError}`);
   }
 
   return summary;

@@ -199,12 +199,26 @@ export const runFetch = async (): Promise<void> => {
 
     fetchStatus.isRunning = true;
     const agent = getProxyAgent(config.proxy);
-    const client = createXClient(secrets, agent);
+    const readClient = createXClient(secrets, agent, "read");
     const staticUsernames = normalizeUsernameList(config.staticUsernames);
     const usernames =
       config.mode === "static" && staticUsernames.length
         ? staticUsernames
-        : await getMyFollowings(client).catch(() => staticUsernames);
+        : await (async () => {
+            try {
+              const userClient = createXClient(secrets, agent, "user");
+              return await getMyFollowings(userClient);
+            } catch (error: any) {
+              logger.warn(
+                {
+                  error: error?.message || String(error),
+                  fallbackCount: staticUsernames.length,
+                },
+                "动态模式获取关注列表失败，已回退 staticUsernames"
+              );
+              return staticUsernames;
+            }
+          })();
     if (config.mode === "static") {
       for (const username of usernames) {
         applyUserMonitorStatus(username, "active", "static", "scheduled_fetch_target");
@@ -212,7 +226,7 @@ export const runFetch = async (): Promise<void> => {
     }
     ensureMediaCacheDir(config);
     const summary = await fetchForUsernames(
-      client,
+      readClient,
       store,
       usernames,
       config.maxPerUser,

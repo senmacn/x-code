@@ -3,27 +3,86 @@ import type { Agent } from "http";
 import { logger } from "../utils/logger";
 import { EnvSecrets } from "../data/types";
 
-export function createXClient(secrets: EnvSecrets, agent?: Agent): TwitterApi {
+type XClientPurpose = "read" | "user";
+
+const maybeDecodeSecret = (key: string, value?: string) => {
+  if (!value) return value;
+  const trimmed = value.trim();
+  if (!/%[0-9a-fA-F]{2}/.test(trimmed)) return trimmed;
+  try {
+    const decoded = decodeURIComponent(trimmed);
+    if (decoded && decoded !== trimmed) {
+      logger.warn({ key }, "检测到 URL 编码的授权字段，已自动解码");
+      return decoded;
+    }
+  } catch {
+    // keep original value
+  }
+  return trimmed;
+};
+
+const normalizeSecrets = (secrets: EnvSecrets): EnvSecrets => ({
+  X_BEARER_TOKEN: maybeDecodeSecret("X_BEARER_TOKEN", secrets.X_BEARER_TOKEN),
+  X_API_KEY: maybeDecodeSecret("X_API_KEY", secrets.X_API_KEY),
+  X_API_SECRET: maybeDecodeSecret("X_API_SECRET", secrets.X_API_SECRET),
+  X_ACCESS_TOKEN: maybeDecodeSecret("X_ACCESS_TOKEN", secrets.X_ACCESS_TOKEN),
+  X_ACCESS_SECRET: maybeDecodeSecret("X_ACCESS_SECRET", secrets.X_ACCESS_SECRET),
+});
+
+const hasOAuth1Secrets = (secrets: EnvSecrets) =>
+  Boolean(secrets.X_API_KEY && secrets.X_API_SECRET && secrets.X_ACCESS_TOKEN && secrets.X_ACCESS_SECRET);
+
+const buildOAuth1Client = (secrets: EnvSecrets, settings?: Partial<IClientSettings>) => {
+  const tokens: TwitterApiTokens = {
+    appKey: secrets.X_API_KEY as string,
+    appSecret: secrets.X_API_SECRET as string,
+    accessToken: secrets.X_ACCESS_TOKEN as string,
+    accessSecret: secrets.X_ACCESS_SECRET as string,
+  };
+  return new TwitterApi(tokens, settings);
+};
+
+export function createXClient(secrets: EnvSecrets, agent?: Agent, purpose: XClientPurpose = "read"): TwitterApi {
   const settings: Partial<IClientSettings> | undefined = agent ? { httpAgent: agent } : undefined;
+  const normalizedSecrets = normalizeSecrets(secrets);
 
-  // Prefer OAuth1.0a user-context if provided, else fallback to bearer token
-  if (secrets.X_API_KEY && secrets.X_API_SECRET && secrets.X_ACCESS_TOKEN && secrets.X_ACCESS_SECRET) {
+  if (purpose === "user") {
+    if (!hasOAuth1Secrets(normalizedSecrets)) {
+      throw new Error(
+        "缺少 OAuth1.0a 用户上下文授权，无法获取关注列表。请设置 X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/X_ACCESS_SECRET。"
+      );
+    }
     logger.info("使用 OAuth1.0a 用户上下文初始化 X 客户端");
-    const tokens: TwitterApiTokens = {
-      appKey: secrets.X_API_KEY,
-      appSecret: secrets.X_API_SECRET,
-      accessToken: secrets.X_ACCESS_TOKEN,
-      accessSecret: secrets.X_ACCESS_SECRET,
-    };
-    return new TwitterApi(tokens, settings);
+    return buildOAuth1Client(normalizedSecrets, settings);
   }
 
-  if (secrets.X_BEARER_TOKEN) {
-    logger.info("使用 Bearer Token 初始化 X 客户端（仅部分只读接口可用）");
-    return new TwitterApi(secrets.X_BEARER_TOKEN, settings);
+  // v2 读取接口优先使用 Bearer，避免混用 OAuth 凭据造成 403 误配置问题
+  if (normalizedSecrets.X_BEARER_TOKEN) {
+    logger.info("使用 Bearer Token 初始化 X 读取客户端");
+    return new TwitterApi(normalizedSecrets.X_BEARER_TOKEN, settings);
   }
 
-  throw new Error("未提供有效的 X 授权信息：请在 .env 中设置 OAuth1.0a 或 Bearer Token");
+  if (hasOAuth1Secrets(normalizedSecrets)) {
+    logger.warn("未设置 Bearer Token，读取接口回退到 OAuth1.0a 用户上下文");
+    return buildOAuth1Client(normalizedSecrets, settings);
+  }
+
+  throw new Error(
+    "未提供有效的 X 授权信息：读取接口至少需要 X_BEARER_TOKEN（或完整 OAuth1.0a 作为回退）。"
+  );
+}
+
+export function isProjectBindingAuthError(err: unknown): boolean {
+  const anyErr = err as any;
+  const message = String(anyErr?.data?.detail || anyErr?.data?.title || anyErr?.message || "")
+    .trim()
+    .toLowerCase();
+  if (!message) return false;
+  return (
+    message.includes("twitter api v2 endpoints") &&
+    message.includes("must use keys and tokens") &&
+    message.includes("attached to a project")
+  );
 }
 
 export async function getUserByUsername(client: TwitterApi, username: string) {

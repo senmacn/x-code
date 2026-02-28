@@ -101,7 +101,7 @@ npm run show -- --user jack --limit 20   # 终端查看推文
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `mode` | `static` \| `dynamic` | 静态：手动维护用户名；动态：自动同步关注列表（需 OAuth） |
+| `mode` | `static` \| `dynamic` | 静态：手动维护用户名；动态：自动同步关注列表（需 OAuth，失败时回退到 staticUsernames） |
 | `staticUsernames` | `string[]` | 静态模式下的用户名列表 |
 | `priorityUsernames` | `string[]` | 媒体优先缓存用户（可与 staticUsernames 组合） |
 | `schedule` | `string` | Cron 表达式，如 `*/15 * * * *` |
@@ -123,10 +123,21 @@ npm run show -- --user jack --limit 20   # 终端查看推文
 
 | 场景 | 所需凭据 |
 |------|---------|
-| 仅读取静态用户推文 | `X_BEARER_TOKEN`（App-only） |
-| 动态获取关注列表 | `X_API_KEY` + `X_API_SECRET` + `X_ACCESS_TOKEN` + `X_ACCESS_SECRET`（OAuth 1.0a） |
+| 读取用户资料/推文（`userByUsername` / `userTimeline`） | 优先 `X_BEARER_TOKEN`（App-only） |
+| 动态获取关注列表（`v2.me` / `v2.following`） | `X_API_KEY` + `X_API_SECRET` + `X_ACCESS_TOKEN` + `X_ACCESS_SECRET`（OAuth 1.0a） |
 
-缺少授权时会自动回退到 `staticUsernames`，日志中会有提示。
+认证策略：
+
+- 读取接口默认优先使用 Bearer，降低 OAuth 凭据混用导致的 403 风险
+- 若未设置 Bearer，读取接口会回退到 OAuth1.0a（需四项都存在）
+- 动态关注列表接口强制使用 OAuth1.0a；失败时会回退到 `staticUsernames`
+- 若凭据误填为 URL 编码形式（如 `%2B`、`%3D`），服务会自动尝试解码后再鉴权
+
+常见 403 排查（示例错误：`must use keys and tokens ... attached to a Project`）：
+
+1. 确认当前 App 已绑定到 X Developer Project
+2. 确认 `API Key/API Secret/Access Token/Access Secret` 来自同一个 App
+3. 更新 `.env` 后重启进程（旧进程不会自动刷新环境变量）
 
 ---
 

@@ -177,3 +177,8 @@ CREATE INDEX idx_tweets_created      ON tweets(created_at DESC);
 | `HTTP_PROXY` / `HTTPS_PROXY` | 代理地址（可代替 config.json 中的 proxy 字段） |
 | `LOG_LEVEL` | Pino 日志级别（默认 `info`） |
 | `API_PORT` | API 服务端口（默认 `3081`） |
+
+说明：
+
+- 读取用户资料/推文接口优先使用 `X_BEARER_TOKEN`
+- 获取关注列表（动态模式）需要完整 OAuth1.0a 四项
