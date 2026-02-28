@@ -102,3 +102,29 @@ test("task run should honor retry window and support resume acquire", () => {
     cleanup();
   }
 });
+
+test("upsertUser should persist avatar_url and keep existing avatar when omitted", () => {
+  const { store, cleanup } = createTempStore();
+  try {
+    store.upsertUser({
+      id: "u-avatar",
+      username: "avatar_user",
+      name: "Avatar User",
+      avatar_url: "https://example.com/avatar-1.jpg",
+      last_seen_at: 1,
+    });
+    store.upsertUser({
+      id: "u-avatar",
+      username: "avatar_user",
+      name: "Avatar User v2",
+      last_seen_at: 2,
+    });
+
+    const row = store.getUserTweetCounts().find((item) => item.id === "u-avatar");
+    assert.ok(row);
+    assert.equal(row?.avatar_url, "https://example.com/avatar-1.jpg");
+    assert.equal(row?.name, "Avatar User v2");
+  } finally {
+    cleanup();
+  }
+});

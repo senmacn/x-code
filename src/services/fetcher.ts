@@ -105,7 +105,13 @@ export async function fetchForUsernames(
 
     try {
       const user = await getUserByUsername(client, uname);
-      const userEntity: UserEntity = { id: user.id, username: user.username, name: user.name, last_seen_at: Date.now() };
+      const userEntity: UserEntity = {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        avatar_url: (user as { profile_image_url?: string }).profile_image_url,
+        last_seen_at: Date.now(),
+      };
       store.upsertUser(userEntity);
 
       const sinceId = store.getLastTweetId(user.id);

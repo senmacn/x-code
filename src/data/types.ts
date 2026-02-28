@@ -34,6 +34,7 @@ export interface UserEntity {
   id: string;
   username: string;
   name?: string;
+  avatar_url?: string;
   last_seen_at?: number;
 }
 

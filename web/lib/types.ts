@@ -48,6 +48,7 @@ export interface User {
   id: string;
   username: string;
   name?: string;
+  avatar_url?: string;
   last_seen_at?: number;
   count: number;
 }

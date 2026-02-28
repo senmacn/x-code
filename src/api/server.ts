@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { loadConfig, saveConfig } from "../config";
 import { getProxyAgent } from "../utils/proxy";
-import { createXClient, getMyFollowings } from "../clients/xClient";
+import { createXClient, getMyFollowings, getUserByUsername } from "../clients/xClient";
 import type { AppConfig } from "../data/types";
 import { Store } from "../data/store";
 import { fetchForUsernames } from "../services/fetcher";
@@ -497,10 +497,10 @@ app.get("/api/users", (_req, res) => {
   res.json({ users });
 });
 
-app.post("/api/users", (req, res) => {
+app.post("/api/users", async (req, res) => {
   const { username } = req.body as { username?: string };
   if (!username) return res.status(400).json({ error: "username 必填" });
-  const { config } = loadConfig();
+  const { config, secrets } = loadConfig();
   if (config.mode !== "static") return res.status(400).json({ error: "仅静态模式支持手动添加用户" });
   const clean = normalizeUsername(username);
   if (!isValidUsername(clean)) {
@@ -511,7 +511,30 @@ app.post("/api/users", (req, res) => {
     return res.status(409).json({ error: "用户已存在" });
   }
   saveConfig({ ...config, staticUsernames: [...list, clean] });
-  res.json({ ok: true });
+
+  let avatarFetched = false;
+  let avatarUrl: string | undefined;
+  try {
+    const agent = getProxyAgent(config.proxy);
+    const client = createXClient(secrets, agent);
+    const user = await getUserByUsername(client, clean);
+    store.upsertUser({
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      avatar_url: (user as { profile_image_url?: string }).profile_image_url,
+      last_seen_at: Date.now(),
+    });
+    avatarUrl = (user as { profile_image_url?: string }).profile_image_url;
+    avatarFetched = Boolean(avatarUrl);
+  } catch (error: any) {
+    logger.warn(
+      { username: clean, error: error?.message || String(error) },
+      "新增用户后拉取头像失败，已跳过"
+    );
+  }
+
+  res.json({ ok: true, avatarFetched, avatarUrl });
 });
 
 app.delete("/api/users/:username", (req, res) => {

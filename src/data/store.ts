@@ -147,6 +147,7 @@ export class Store {
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL,
         name TEXT,
+        avatar_url TEXT,
         last_seen_at INTEGER
       );
 
@@ -255,7 +256,15 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_tweet_refs_ref_tweet_id ON tweet_refs(ref_tweet_id);
     `);
 
-    // 兼容旧库结构：历史库可能没有 media_json 列
+    // 兼容旧库结构：历史库可能缺少部分列
+    const userCols = this.db
+      .prepare("PRAGMA table_info(users)")
+      .all() as { name: string }[];
+    const hasAvatarUrl = userCols.some((col) => col.name === "avatar_url");
+    if (!hasAvatarUrl) {
+      this.db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT");
+    }
+
     const tweetCols = this.db
       .prepare("PRAGMA table_info(tweets)")
       .all() as { name: string }[];
@@ -267,9 +276,13 @@ export class Store {
 
   private prepareStatements() {
     this.stmtUpsertUser = this.db.prepare(`
-      INSERT INTO users (id, username, name, last_seen_at)
-      VALUES (@id, @username, @name, @last_seen_at)
-      ON CONFLICT(id) DO UPDATE SET username=excluded.username, name=excluded.name, last_seen_at=excluded.last_seen_at
+      INSERT INTO users (id, username, name, avatar_url, last_seen_at)
+      VALUES (@id, @username, @name, @avatar_url, @last_seen_at)
+      ON CONFLICT(id) DO UPDATE SET
+        username = excluded.username,
+        name = excluded.name,
+        avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
+        last_seen_at = excluded.last_seen_at
     `);
     this.stmtInsertTweet = this.db.prepare(`
       INSERT INTO tweets (id, user_id, text, created_at, lang, media_json, entities_json, raw_json)
@@ -495,7 +508,11 @@ export class Store {
   }
 
   upsertUser(user: UserEntity) {
-    this.stmtUpsertUser.run({ ...user, last_seen_at: user.last_seen_at ?? Date.now() });
+    this.stmtUpsertUser.run({
+      ...user,
+      avatar_url: user.avatar_url ?? null,
+      last_seen_at: user.last_seen_at ?? Date.now(),
+    });
   }
 
   saveTweets(tweets: TweetEntity[]) {
@@ -612,9 +629,9 @@ export class Store {
 
   listUsers() {
     return this.db.prepare(`
-      SELECT id, username, name FROM users
+      SELECT id, username, name, avatar_url FROM users
       ORDER BY username ASC
-    `).all() as { id: string; username: string; name?: string }[];
+    `).all() as { id: string; username: string; name?: string; avatar_url?: string }[];
   }
 
   queryTweets(opts: {
@@ -1028,14 +1045,28 @@ export class Store {
     `).all() as { date: string; count: number }[];
   }
 
-  getUserTweetCounts(): { id: string; username: string; name?: string; last_seen_at?: number; count: number }[] {
+  getUserTweetCounts(): {
+    id: string;
+    username: string;
+    name?: string;
+    avatar_url?: string;
+    last_seen_at?: number;
+    count: number;
+  }[] {
     return this.db.prepare(`
-      SELECT u.id, u.username, u.name, u.last_seen_at, COUNT(t.id) as count
+      SELECT u.id, u.username, u.name, u.avatar_url, u.last_seen_at, COUNT(t.id) as count
       FROM users u
       LEFT JOIN tweets t ON u.id = t.user_id
       GROUP BY u.id
       ORDER BY count DESC
-    `).all() as { id: string; username: string; name?: string; last_seen_at?: number; count: number }[];
+    `).all() as {
+      id: string;
+      username: string;
+      name?: string;
+      avatar_url?: string;
+      last_seen_at?: number;
+      count: number;
+    }[];
   }
 
   close() {

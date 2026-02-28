@@ -27,7 +27,9 @@ export function createXClient(secrets: EnvSecrets, agent?: Agent): TwitterApi {
 }
 
 export async function getUserByUsername(client: TwitterApi, username: string) {
-  const res = await client.v2.userByUsername(username);
+  const res = await client.v2.userByUsername(username, {
+    "user.fields": ["profile_image_url"],
+  });
   return res.data;
 }
 
