@@ -3,6 +3,7 @@
 
 # runtime data
 data.db
+media-cache/
 
 # user config (overrides config.default.json)
 config.json

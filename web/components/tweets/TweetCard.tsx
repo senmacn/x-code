@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { ReferencedTweet, Tweet, TweetReference } from "@/lib/types";
 import { relativeTime, absoluteTime } from "@/lib/utils";
@@ -21,6 +24,7 @@ const highlightEntities = (text: string): React.ReactNode => {
 interface TweetCardProps {
   tweet: Tweet;
   compact?: boolean;
+  timeDisplayMode?: "relative" | "absolute" | "toggle";
 }
 
 interface TweetMedia {
@@ -106,7 +110,17 @@ const isImageUrl = (url?: string): boolean => {
   );
 };
 
-export const TweetCard = ({ tweet, compact = false }: TweetCardProps) => {
+export const TweetCard = ({
+  tweet,
+  compact = false,
+  timeDisplayMode = "relative",
+}: TweetCardProps) => {
+  const [showAbsoluteTime, setShowAbsoluteTime] = useState(false);
+  const canToggleTime = timeDisplayMode === "toggle";
+  const useAbsoluteTime = timeDisplayMode === "absolute" || (canToggleTime && showAbsoluteTime);
+  const formatTime = (iso?: string) =>
+    useAbsoluteTime ? absoluteTime(iso) : relativeTime(iso);
+
   const tweetUrl = `https://x.com/${tweet.username}/status/${tweet.id}`;
   const displayText = buildDisplayText(tweet) || tweet.text;
   const mediaItems = parseMedia(tweet);
@@ -131,12 +145,20 @@ export const TweetCard = ({ tweet, compact = false }: TweetCardProps) => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span
-            className="text-xs text-slate-400 cursor-default"
-            title={absoluteTime(tweet.created_at)}
-          >
-            {relativeTime(tweet.created_at)}
-          </span>
+          {canToggleTime ? (
+            <button
+              type="button"
+              className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+              title={useAbsoluteTime ? "点击切换为相对时间" : "点击切换为详细时间"}
+              onClick={() => setShowAbsoluteTime((v) => !v)}
+            >
+              {formatTime(tweet.created_at)}
+            </button>
+          ) : (
+            <span className="text-xs text-slate-400 cursor-default">
+              {formatTime(tweet.created_at)}
+            </span>
+          )}
           <a
             href={tweetUrl}
             target="_blank"
@@ -181,7 +203,7 @@ export const TweetCard = ({ tweet, compact = false }: TweetCardProps) => {
                   <>
                     <p className="text-xs text-slate-500">
                       @{refTweet.username || "unknown"}
-                      {refTweet.created_at ? ` · ${relativeTime(refTweet.created_at)}` : ""}
+                      {refTweet.created_at ? ` · ${formatTime(refTweet.created_at)}` : ""}
                     </p>
                     <p className="text-sm text-slate-700 mt-1 line-clamp-3">{refTweet.text}</p>
                     {refPreview && (

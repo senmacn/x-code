@@ -49,7 +49,7 @@ export default function DashboardPage() {
             )}
             <div className={cn("space-y-3 transition-opacity duration-200", isLoading && data ? "opacity-60" : "opacity-100")}>
               {data?.tweets?.map((t) => (
-                <TweetCard key={t.id} tweet={t} compact />
+                <TweetCard key={t.id} tweet={t} compact timeDisplayMode="toggle" />
               ))}
             </div>
           </section>

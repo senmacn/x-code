@@ -98,7 +98,7 @@ export default function TweetsPage() {
 
           <div className={cn("space-y-3 transition-opacity duration-200", isLoading && data ? "opacity-60" : "opacity-100")}>
             {data?.tweets?.map((t) => (
-              <TweetCard key={t.id} tweet={t} />
+              <TweetCard key={t.id} tweet={t} timeDisplayMode="absolute" />
             ))}
           </div>
 
