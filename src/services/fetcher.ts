@@ -84,8 +84,6 @@ export async function fetchForUsernames(
   let authConfigError: string | null = null;
   const fallbackClient = hooks?.authFallbackClient;
   const fallbackLabel = hooks?.authFallbackLabel ?? "OAuth1.0a 用户上下文";
-  let activeClient = client;
-  let switchedToFallback = false;
   store.cleanupExpiredUserRateLimits();
   const emitProgress = (username?: string) => {
     hooks?.onProgress?.({
@@ -235,7 +233,7 @@ export async function fetchForUsernames(
     };
 
     try {
-      await fetchWithClient(activeClient);
+      await fetchWithClient(client);
     } catch (err: any) {
       let currentError = err;
       let status = getStatusCode(currentError);
@@ -243,17 +241,13 @@ export async function fetchForUsernames(
       let detail = currentError?.data?.detail;
       let msg = detail || title || currentError?.message || String(currentError);
 
-      if (status === 401 && fallbackClient && activeClient !== fallbackClient) {
-        if (!switchedToFallback) {
-          logger.warn(
-            { username: uname, status, error: msg, fallback: fallbackLabel },
-            "主认证读取失败，切换到备用认证"
-          );
-        }
-        activeClient = fallbackClient;
-        switchedToFallback = true;
+      if (status === 401 && fallbackClient) {
+        logger.warn(
+          { username: uname, status, error: msg, fallback: fallbackLabel },
+          "主认证读取失败，切换到备用认证重试"
+        );
         try {
-          await fetchWithClient(activeClient);
+          await fetchWithClient(fallbackClient);
           return;
         } catch (retryErr: any) {
           currentError = retryErr;
